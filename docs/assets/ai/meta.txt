@@ -1,0 +1,10 @@
+mood_train=594
+mood_test=75
+mood_test_acc=0.933
+mood_cv_acc=0.810
+harm_train_pos=101
+harm_test_pos=13
+harm_test_hit=11
+harm_test_neg=95
+harm_test_fp=0
+harm_threshold=0.8

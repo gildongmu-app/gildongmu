@@ -1,0 +1,508 @@
+// blossom — tools/site/agsl2glsl.mjs 가 app/src/main/assets/scenes/_lib.agsl + blossom.agsl 에서 만든 파일. 손으로 고치지 말 것.
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec2 uSize;
+uniform float uTime;
+uniform float uFlow;
+uniform float uDay;
+uniform float uWind;
+uniform float uRain;
+uniform float uLevel;
+uniform float uSoft;
+uniform float uSeed;
+uniform float uGrade;
+float sat(float x){return clamp(x,0.0,1.0);}
+float sq(float x){return x*x;}
+vec3 hx(float r,float g,float b){return vec3(r,g,b)/255.0;}
+float h11(float n){return fract(sin(n*127.1+311.7)*43758.5453);}
+float h21(vec2 p){
+p=fract(p*vec2(123.34,456.21));
+p+=dot(p,p+45.32);
+return fract(p.x*p.y);
+}
+vec2 h22(vec2 p){float n=h21(p);return vec2(n,h21(p+n*31.7+17.17));}
+float vn(vec2 p){
+vec2 i=floor(p);
+vec2 f=fract(p);
+vec2 u=f*f*(3.0-2.0*f);
+float a=h21(i);
+float b=h21(i+vec2(1.0,0.0));
+float c=h21(i+vec2(0.0,1.0));
+float d=h21(i+vec2(1.0,1.0));
+return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
+float fbm(vec2 p){
+float v=0.0;
+float a=0.5;
+for(int i=0;i<5;i++){v+=a*vn(p);p=p*2.03+vec2(13.7,7.1);a*=0.5;}
+return v;
+}
+float fbm3(vec2 p){
+float v=0.0;
+float a=0.5;
+for(int i=0;i<3;i++){v+=a*vn(p);p=p*2.03+vec2(13.7,7.1);a*=0.5;}
+return v/0.875;
+}
+mat2 rot(float a){float c=cos(a);float s=sin(a);return mat2(c,-s,s,c);}
+float dayK(){float t=mod(uDay,4.0);float f=fract(t);return floor(t)+f*f*(3.0-2.0*f);}
+vec3 day4(vec3 a,vec3 b,vec3 c,vec3 d){
+float t=dayK();
+if(t<1.0)return mix(a,b,t);
+if(t<2.0)return mix(b,c,t-1.0);
+if(t<3.0)return mix(c,d,t-2.0);
+return mix(d,a,t-3.0);
+}
+float day4f(float a,float b,float c,float d){
+float t=dayK();
+if(t<1.0)return mix(a,b,t);
+if(t<2.0)return mix(b,c,t-1.0);
+if(t<3.0)return mix(c,d,t-2.0);
+return mix(d,a,t-3.0);
+}
+float gust(float x,float t){
+float g=vn(vec2(x*0.9-t*0.35,t*0.07))*0.65+vn(vec2(x*2.3-t*0.8,3.7))*0.35;
+return sat(g*(0.55+0.9*uWind));
+}
+float stars(vec2 p,float k){
+vec2 g=p*k;
+vec2 id=floor(g);
+vec2 f=fract(g)-0.5;
+float r=h21(id+3.1);
+if(r<0.80)return 0.0;
+vec2 o=(h22(id+9.7)-0.5)*0.7;
+float d=length(f-o);
+float tw=0.55+0.45*sin(uTime*(0.6+2.2*h21(id+1.3))+r*40.0);
+float s=(r-0.80)*5.0;
+return smoothstep(0.09*(0.4+s),0.0,d)*tw*(0.35+0.65*s);
+}
+float glow(float d,float r){return exp(-d*d/(r*r));}
+vec4 finish(vec3 col,vec2 xy){
+vec2 uv=xy/uSize;
+float l=dot(col,vec3(0.299,0.587,0.114));
+if(uGrade>1.5){
+float k=smoothstep(0.02,0.92,l);
+vec3 ink=mix(vec3(0.085,0.078,0.072),vec3(0.80,0.77,0.71),k*k*(1.6-0.6*k));
+col=mix(ink,col,0.10);
+}else if(uGrade>0.5){
+col=mix(col,vec3(l),0.10);
+col=col*vec3(1.03,1.0,0.95)+vec3(0.028,0.022,0.034);
+}
+float g=uGrade>0.5?0.060:0.020;
+float n=h21(xy+fract(uTime*0.37)*91.0)-0.5;
+col+=vec3(n*g);
+vec2 v=uv-0.5;
+col*=1.0-0.26*dot(v,v);
+return vec4(clamp(col,vec3(0.0),vec3(1.0)),1.0);
+}
+const float WATER=0.815;
+const float TAU=6.2831853;
+float vnp(vec2 p){
+vec2 i=floor(p);
+vec2 f=p-i;
+vec2 u=f*f*(3.0-2.0*f);
+vec2 i0=mod(i,256.0);
+vec2 i1=mod(i+1.0,256.0);
+return mix(mix(h21(i0),h21(vec2(i1.x,i0.y)),u.x),mix(h21(vec2(i0.x,i1.y)),h21(i1),u.x),u.y);
+}
+float fbp3(vec2 p){
+return(0.5*vnp(p)+0.25*vnp(p*2.0+vec2(13.7,7.1))+0.125*vnp(p*4.0+vec2(31.1,17.3)))/0.875;
+}
+float fbp(vec2 p){
+return fbp3(p)*0.875+0.0625*vnp(p*8.0+vec2(5.3,41.9))+0.03125*vnp(p*16.0+vec2(71.3,23.7));
+}
+float smax(float a,float b,float k){
+float h=max(k-abs(a-b),0.0)/k;
+return max(a,b)+h*h*k*0.25;
+}
+float sdPetal(vec2 q){
+vec2 e=vec2(abs(q.x),q.y-0.07);
+float d;
+if(e.y>0.0)d=length(e)-0.366;
+else if(-0.634*(e.x+0.366)>e.y*0.366)d=length(e-vec2(0.0,-0.634));
+else d=length(e+vec2(0.366,0.0))-0.732;
+vec2 w=e-vec2(0.0,0.250);
+float dw=(w.x*0.3090+w.y*0.9511<0.0)?length(w):(w.x*0.9511-w.y*0.3090);
+return smax(d,-dw,0.055);
+}
+float bigGust(float t){
+return smoothstep(0.52,0.97,0.5+0.5*sin(t*0.19+1.7*sin(t*0.061+mod(uSeed,61.0))));
+}
+vec4 petalLayer(vec2 p,float fi,float t,float px,vec3 cTip,vec3 cBase,vec3 cShade,vec3 haze,float amt){
+float z=fi/5.0;
+float S=0.065*pow(1.5,fi);
+float v=0.028*pow(1.45,fi);
+float blur=max(px*0.9,(0.9+0.55*abs(fi-2.0)+2.6*sq(max(fi-3.0,0.0)))/1208.0);
+float slant=0.26+0.70*uWind;
+float ph=fi*1.7+mod(uSeed,61.0);
+float wx=p.x*0.55+p.y*0.25;
+float wamp=(0.45+1.3*uWind)*(0.55+0.75*z)*(1.0+0.7*bigGust(t-(uSize.x/uSize.y-p.x)*0.8));
+vec2 w=p;
+w.x+=wamp*(0.060*sin(0.47*t+wx*0.8+ph)+0.035*sin(0.83*t+wx*1.2+ph*2.3)+0.020*sin(1.31*t+wx*1.7+ph*0.7));
+w.y+=wamp*(0.022*sin(0.61*t+wx*1.1+ph*1.3)+0.012*sin(1.07*t-wx*1.5+ph));
+float gx=(w.x+slant*w.y+uFlow*(0.25+0.20*fi))/S+fi*7.31+mod(uSeed,61.0)*3.0;
+float ix=floor(gx);
+float sdx=(gx-ix)<0.5?-1.0:1.0;
+vec4 acc=vec4(0.0);
+for(int a=0;a<2;a++){
+float cxi=ix+float(a)*sdx;
+float cw=mod(cxi,61.0);
+float hc=h11(cw+fi*13.0);
+float vc=v*(0.78+0.44*hc);
+float gy=(w.y-t*vc)/S+hc*19.0;
+float iy=floor(gy);
+float sdy=(gy-iy)<0.5?-1.0:1.0;
+for(int b=0;b<2;b++){
+float cyi=iy+float(b)*sdy;
+vec2 id=vec2(cw,mod(cyi,53.0))+fi*17.0;
+vec2 r1=h22(id);
+vec2 r2=h22(id+5.3);
+float trel=(19.0*hc-cyi-0.5)*S/vc;
+float dens=mix(0.24,0.95,bigGust(trel-cw*S*0.7))*amt;
+float ex=smoothstep(-0.04,0.04,dens-r2.y);
+float len=S*(0.14+0.10*z)*(0.70+0.50*r2.x);
+float sw=TAU*fract(t*(0.09+0.11*r1.y)+r2.y*3.0);
+vec2 c=0.5+(r1-0.5)*0.56+vec2(0.16*sin(sw),0.05*cos(2.0*sw));
+vec2 dl=(vec2(gx-cxi,gy-cyi)-c)*S;
+dl.x-=slant*dl.y;
+float rr=len*0.70+blur;
+if(ex>0.0&&dot(dl,dl)<rr*rr){
+float slow=1.15-0.45*z;
+float dir=r1.x<0.5?-1.0:1.0;
+float spin=TAU*fract(r1.x*7.0+dir*t*(0.04+0.09*r2.x)*slow)+0.6*sin(sw+1.0);
+float flip=TAU*fract(r1.y*5.0+t*(0.15+0.24*r1.x)*slow);
+float kf=cos(flip);
+float kk=max(abs(kf),0.13);
+vec2 a2=rot(spin)*dl;
+a2.y-=0.32*sin(flip)*a2.x*a2.x/len;
+vec2 b2=vec2(a2.x,a2.y/kk);
+vec2 n=b2*inversesqrt(dot(b2,b2)+1e-9);
+float gf=sqrt(n.x*n.x+n.y*n.y/(kk*kk));
+vec2 q=rot(r2.x*6.0)*b2/len;
+float d=sdPetal(q)*len/gf;
+float al=smoothstep(blur,-blur,d);
+float tone=smoothstep(-0.56,0.22,q.y);
+vec3 pc=mix(cBase,cTip,tone);
+pc*=0.95+0.05*smoothstep(-0.06,0.06,q.x);
+float lit=0.5+0.5*cos(flip-0.7);
+pc=mix(mix(cShade,pc,0.30),pc,lit);
+pc+=cTip*0.20*pow(lit,10.0);
+pc=mix(haze,pc,0.50+0.50*smoothstep(0.0,0.5,z));
+al*=ex*mix(0.78,1.0,kk)*mix(0.80,0.96,smoothstep(0.0,0.4,z))*(1.0-0.42*smoothstep(0.7,1.0,z));
+acc.rgb=acc.rgb*(1.0-al)+pc*al;
+acc.a=acc.a*(1.0-al)+al;
+}
+}
+}
+return acc;
+}
+vec4 cherryRow(vec2 q,float seed){
+float i0=floor(q.x);
+float H=0.0;
+vec2 G=vec2(0.0);
+float trunk=0.0;
+for(int k=0;k<3;k++){
+float id=i0+float(k)-1.0;
+float iw=mod(id,71.0);
+float r=h11(iw+seed*3.0);
+float r2=h11(iw*1.7+seed*5.0+3.3);
+float size=0.62+0.58*r2;
+float cx=id+0.5+(r-0.5)*0.44;
+for(int j=0;j<5;j++){
+float fj=float(j);
+vec2 rj=h22(vec2(iw+fj*7.3,seed*11.0+fj));
+vec2 off=j==0?vec2(0.0,0.56):(j==1?vec2(-0.33,0.44):(j==2?vec2(0.32,0.42):(j==3?vec2(-0.14,0.78):vec2(0.17,0.72))));
+float rad0=j==0?0.33:(j<3?0.25:0.20);
+vec2 c=vec2(cx,0.0)+(off+(rj-0.5)*0.20)*size;
+float rad=rad0*size*(0.80+0.36*rj.x);
+vec2 dv=q-c;
+float e=exp(-dot(dv,dv)/(rad*rad));
+H+=e;
+G-=2.0*dv/(rad*rad)*e;
+}
+float lean=(r-0.5)*0.30;
+float yf=0.28*size;
+float tx=q.x-cx-lean*q.y;
+float sp=max(q.y-yf,0.0);
+float bend=sp*(1.0+0.9*sp/size);
+float lim=min(abs(tx-0.50*bend),min(abs(tx+0.62*bend),abs(tx-0.07*sp)))*0.85;
+float dT=q.y<yf?abs(tx):lim;
+float tw=mix(0.022,0.006,sat(q.y/(0.62*size)))*size;
+trunk=max(trunk,smoothstep(tw+0.010,tw-0.010,dT)*smoothstep(0.66,0.50,q.y/size));
+}
+return vec4(H,G,trunk);
+}
+vec4 paintRow(vec2 q,float seed,float bl,vec3 Ldir,vec3 deep,vec3 shade,vec3 light,vec3 trunkCol,vec3 warm){
+vec4 r=cherryRow(q,seed);
+float nz=fbp3(q*vec2(5.0,4.4)+seed*3.0);
+float nz2=vnp(q*vec2(17.0,15.0)+seed*9.0);
+float Hn=r.x+(nz-0.5)*0.50+(nz2-0.5)*0.16;
+float a=smoothstep(0.50-0.18*bl,0.50+0.18*bl,Hn);
+vec3 N=normalize(vec3(-r.yz*0.13,1.0));
+float l=dot(N,Ldir)+(nz-0.5)*0.24+(nz2-0.5)*0.08;
+vec3 f=mix(deep,shade,smoothstep(0.34,0.66,l));
+f=mix(f,light,smoothstep(0.62,0.98,l));
+f=mix(f,light,0.42*(1.0-smoothstep(0.45,1.10,Hn)));
+f+=warm*(0.45+0.55*smoothstep(0.3,0.9,l));
+float tr=r.w*0.82*step(0.0,q.y)*(1.0-a);
+return vec4(f*a+trunkCol*tr,a+tr);
+}
+vec3 land(vec2 p,float asp,float px,float t,float bl){
+float yUp=WATER-p.y;
+float y=sat(p.y/WATER);
+float lampOn=day4f(0.22,0.0,0.62,1.0);
+vec3 top=day4(hx(112.0,114.0,174.0),hx(66.0,118.0,196.0),hx(84.0,78.0,150.0),hx(9.0,13.0,38.0));
+vec3 mid=day4(hx(154.0,140.0,188.0),hx(100.0,152.0,214.0),hx(184.0,114.0,152.0),hx(22.0,27.0,68.0));
+vec3 low=day4(hx(236.0,204.0,216.0),hx(214.0,212.0,236.0),hx(255.0,184.0,150.0),hx(62.0,46.0,100.0));
+vec3 col=mix(top,mid,smoothstep(0.0,0.66,y));
+col=mix(col,low,smoothstep(0.60,1.0,y));
+float sunAmt=day4f(0.8,0.0,1.0,0.0);
+vec2 sunP=vec2(day4f(0.24,0.5,0.76,0.76)*asp,WATER-0.05);
+vec3 sunCol=day4(hx(255.0,214.0,200.0),hx(255.0,246.0,232.0),hx(255.0,196.0,136.0),hx(255.0,170.0,130.0));
+float sd=length((p-sunP)*vec2(0.50,1.0));
+col+=sunCol*(0.30*exp(-sd*5.5)+0.26*exp(-sd*13.0))*sunAmt;
+col+=sunCol*0.11*exp(-length(p-vec2(asp*0.94,-0.14))*2.0)*day4f(0.0,1.0,0.0,0.0);
+float nt=day4f(0.06,0.0,0.10,1.0);
+if(nt>0.02){
+float st=stars(p+vec2(uFlow*0.004,0.0),24.0)+stars(p*1.7+3.3,32.0)*0.6;
+col+=vec3(0.86,0.90,1.0)*st*smoothstep(0.55,0.05,p.y)*nt*0.6;
+}
+vec2 cp=vec2(p.x*0.80+t*0.006+uFlow*0.012+mod(uSeed,61.0),p.y*3.6);
+float cl=fbp(cp+vec2(0.0,fbp3(cp*0.6+7.0)*0.9));
+float cm=smoothstep(0.44,0.76,cl)*smoothstep(0.80,0.42,p.y)*smoothstep(0.04,0.28,p.y);
+vec3 cCol=day4(hx(214.0,190.0,216.0),hx(176.0,200.0,238.0),hx(250.0,160.0,156.0),hx(44.0,44.0,96.0));
+col=mix(col,cCol,cm*day4f(0.40,0.44,0.50,0.45));
+vec3 hazeCol=day4(hx(240.0,212.0,224.0),hx(236.0,220.0,236.0),hx(255.0,190.0,160.0),hx(210.0,120.0,120.0));
+float hz=exp(-max(yUp,0.0)*11.0);
+col=mix(col,hazeCol,sat(hz*day4f(0.60,0.46,0.42,0.18+0.10*lampOn)*(1.0+0.40*uLevel)));
+col+=hazeCol*hz*0.040*uLevel;
+float hxx=p.x+uFlow*0.05;
+float hill=0.070+0.060*fbp3(vec2(hxx*1.3+3.0,1.0))+0.010*fbp3(vec2(hxx*6.0,4.0));
+vec3 hillCol=day4(hx(186.0,172.0,206.0),hx(150.0,176.0,214.0),hx(166.0,112.0,156.0),hx(30.0,28.0,70.0));
+col=mix(col,mix(hillCol,hazeCol,0.30*exp(-yUp*14.0)),smoothstep(-0.006*bl,0.006*bl,hill-yUp)*0.88);
+vec3 Ldir=normalize(day4(vec3(-0.55,0.40,0.75),vec3(0.40,0.66,0.64),vec3(0.80,0.22,0.56),vec3(0.0,-0.60,0.80)));
+vec3 lanternCol=hx(255.0,160.0,130.0);
+vec3 deep=day4(hx(146.0,120.0,168.0),hx(190.0,112.0,166.0),hx(124.0,64.0,114.0),hx(40.0,30.0,72.0));
+vec3 shade=day4(hx(190.0,156.0,198.0),hx(234.0,158.0,196.0),hx(212.0,106.0,140.0),hx(76.0,52.0,100.0));
+vec3 light=day4(hx(238.0,212.0,230.0),hx(255.0,232.0,242.0),hx(255.0,200.0,176.0),hx(128.0,88.0,132.0));
+vec3 trunkCol=day4(hx(104.0,90.0,124.0),hx(92.0,64.0,88.0),hx(64.0,38.0,66.0),hx(12.0,10.0,30.0));
+float fx1=p.x+uFlow*0.10+3.7;
+float top1=0.052+0.060*fbp3(vec2(fx1*5.0,1.5))+0.018*vnp(vec2(fx1*19.0,3.0));
+float a1=smoothstep(-0.012*bl,0.012*bl,top1-yUp);
+float g1=sat((top1-yUp)/0.05);
+vec3 f1=mix(light,shade,smoothstep(0.0,0.9,g1)*0.8+0.2*vnp(vec2(fx1*9.0,yUp*40.0)));
+f1+=lanternCol*lampOn*0.20*exp(-max(yUp-0.03,0.0)*40.0);
+col=mix(col,mix(f1,hazeCol,0.45),a1*0.92);
+float warmK=lampOn*exp(-max(yUp-0.03,0.0)*20.0)*(1.0+0.10*uLevel);
+vec2 q1=vec2((p.x+uFlow*0.16)/0.160+3.7,(yUp-0.030)/0.150);
+if(q1.y<1.5&&q1.y>-0.1){
+vec4 r1=paintRow(q1,1.0,bl*1.15,Ldir,deep,shade,light,trunkCol,lanternCol*0.5*warmK);
+r1.rgb=mix(r1.rgb,hazeCol*r1.a,0.26);
+col=col*(1.0-r1.a)+r1.rgb;
+}
+float mist=(0.55+0.45*fbp3(vec2(p.x*1.8+t*0.010+uFlow*0.14,2.0)))*exp(-max(yUp,0.0)*14.0);
+col=mix(col,hazeCol,mist*day4f(0.66,0.30,0.32,0.16));
+vec2 q2=vec2((p.x+uFlow*0.24)/0.250+1.3,(yUp-0.012)/0.200);
+if(q2.y<1.5&&q2.y>-0.1){
+vec4 r2=paintRow(q2,2.0,bl,Ldir,deep,shade,light,trunkCol,lanternCol*0.8*warmK);
+col=col*(1.0-r2.a)+r2.rgb;
+}
+float bx=p.x+uFlow*0.24;
+float bank=0.015+0.007*fbp3(vec2(bx*5.0,3.0))+0.0016*vnp(vec2(bx*70.0,5.0));
+vec3 bankCol=day4(hx(132.0,128.0,156.0),hx(98.0,128.0,122.0),hx(92.0,66.0,96.0),hx(14.0,14.0,36.0));
+vec3 bankLit=day4(hx(206.0,186.0,206.0),hx(182.0,196.0,170.0),hx(206.0,138.0,136.0),hx(46.0,36.0,64.0));
+float bk2=smoothstep(-0.0030*bl,0.0030*bl,bank-yUp);
+float bt=smoothstep(0.0,1.0,yUp/bank)*(0.50+0.50*vnp(vec2(bx*22.0,yUp*90.0)));
+vec3 bc=mix(bankCol,bankLit,bt);
+bc=mix(bc,light,0.30*smoothstep(0.45,0.80,vnp(vec2(bx*13.0,7.0)))*bt);
+col=mix(col,bc+lanternCol*lampOn*0.16,bk2);
+float lx=(p.x+uFlow*0.24)/0.031+0.5;
+float lf=fract(lx)-0.5;
+float li=floor(lx);
+float sag=0.036+0.010*cos(lx*TAU/7.0);
+float ldist=length(vec2(lf*0.031,yUp-sag));
+float tw=0.86+0.14*sin(t*(0.5+h11(mod(li,97.0)))+mod(li,97.0));
+vec3 lampCol=mix(hx(255.0,196.0,124.0),hx(255.0,150.0,140.0),step(0.72,h11(mod(li,97.0)+4.0)));
+col+=lampCol*(glow(ldist,px*2.4)*1.1+glow(ldist,px*9.0)*0.30)*lampOn*tw*(1.0+0.18*uLevel);
+return col;
+}
+vec3 arcAt(vec2 o,float a0,float k,float s){
+float a1=a0+k*s;
+return vec3(o+vec2(sin(a1)-sin(a0),cos(a0)-cos(a1))/k,a1);
+}
+vec2 arcSN(vec2 p,vec2 o,float a0,float k,float L){
+float sg=k<0.0?-1.0:1.0;
+vec2 v=p-(o+vec2(-sin(a0),cos(a0))/k);
+float ang=atan(v.y,v.x)+sg*1.5708-a0;
+return vec2(L*0.5+(mod(ang-k*L*0.5+3.14159,TAU)-3.14159)/k,sg*(1.0/abs(k)-length(v)));
+}
+vec4 bough(vec2 p,vec2 o,float a0,float k,float L,float w0,float sp,float seed,float bl,vec3 cA,vec3 cB,vec3 cC,vec3 cBr){
+vec2 sn=arcSN(p,o,a0,k,L);
+float s=sn.x;
+float n=sn.y;
+if(abs(n)>0.045||s<-0.06||s>L+0.03)return vec4(0.0);
+float u=sat(s/L);
+float wob=0.0030*sin(s*47.0+seed*9.0)+0.0016*sin(s*113.0+seed*4.0);
+float dB=abs(n-wob)-w0*mix(1.0,0.22,u);
+dB=max(dB,max(-s-0.05,s-L));
+float br=smoothstep(bl,-bl,dB)*0.86;
+vec4 acc=vec4(cBr*br,br);
+float cell=0.0185;
+float ci=floor(s/cell);
+for(int i=0;i<3;i++){
+float id=ci+float(i)-1.0;
+for(int j=0;j<2;j++){
+vec2 r=h22(vec2(id+40.0,seed*13.0+float(j)*7.0));
+vec2 r2=h22(vec2(id+40.0,seed*29.0+float(j)*3.0));
+float sb=(id+0.15+0.70*r.x)*cell;
+float has=step(r2.x,0.30+0.66*smoothstep(0.0,0.40,sb/L))*step(sb,L+0.008)*step(0.0,sb);
+float off=r.y*2.0-1.0;
+float bud=step(r2.y,0.16);
+float nb=off*abs(off)*sp+wob+0.0012*sin(uTime*(1.4+r.x)+r.y*40.0);
+float rad=mix(0.0062+0.0062*r2.y,0.0034,bud);
+vec2 dv=vec2(s-sb,n-nb);
+float dd=length(dv);
+if(has>0.5&&dd<rad*1.9+bl){
+float hl=0.16*exp(-dd*dd/(1.6*rad*rad))*(1.0-bud);
+acc.rgb=acc.rgb*(1.0-hl)+cA*hl;
+acc.a=acc.a*(1.0-hl)+hl;
+vec2 dq=rot(r.x*30.0)*dv;
+dq.y/=mix(0.60+0.40*fract(r2.x*7.3),0.8,bud);
+float d2=length(dq);
+float th=atan(dq.y,dq.x+1e-6)+r.y*20.0;
+float lobe=mix(pow(abs(cos(2.5*th)),0.55),1.0,bud);
+float edge=rad*(0.80+0.20*lobe);
+float al=smoothstep(edge+bl,edge-bl,d2)*(0.76+0.22*r.y);
+float rr=d2/rad;
+vec3 fc=mix(cB,cA,r2.y);
+fc=mix(fc,cA,0.5*smoothstep(0.55,1.0,rr));
+fc=mix(cC,fc,smoothstep(0.08,0.50,rr)*(1.0-0.8*bud));
+fc*=0.90+0.10*lobe;
+acc.rgb=acc.rgb*(1.0-al)+fc*al;
+acc.a=acc.a*(1.0-al)+al;
+}
+}
+}
+return acc;
+}
+vec4 sceneMain(vec2 xy){
+vec2 uv=xy/uSize;
+float asp=uSize.x/uSize.y;
+vec2 p=vec2(uv.x*asp,uv.y);
+float px=1.0/uSize.y;
+float t=uTime;
+float sv=mod(uSeed,61.0);
+float calm=1.0-0.40*uSoft;
+vec3 lowSky=day4(hx(238.0,206.0,216.0),hx(220.0,214.0,236.0),hx(255.0,186.0,150.0),hx(62.0,46.0,100.0));
+float wet=step(WATER,p.y);
+float d=max(p.y-WATER,0.0)/(1.0-WATER);
+float rows=log(1.0+d*8.0)*30.0;
+float wv=vnp(vec2(p.x*4.5+t*0.16,rows-t*0.55));
+float wv2=vnp(vec2(p.x*15.0-t*0.22,rows*2.3+t*0.9));
+float dx=((wv-0.5)*0.030+(wv2-0.5)*0.008)*(0.10+d*1.2);
+vec2 q=mix(p,vec2(p.x+dx,WATER-(p.y-WATER)*1.50-(wv2-0.5)*0.010*d-0.002),wet);
+vec3 col=land(q,asp,px*(1.0+wet*(0.5+d*4.0)),t,1.0+wet*(0.6+2.0*d));
+if(wet>0.5){
+vec3 deepW=day4(hx(150.0,150.0,186.0),hx(96.0,138.0,190.0),hx(98.0,70.0,124.0),hx(10.0,12.0,34.0));
+col=mix(deepW,col,0.76-0.34*d);
+float raft=fbp(vec2(p.x*2.6+t*0.012+uFlow*0.30,rows*0.55+4.0));
+float rf=smoothstep(0.52,0.76,raft)*(0.50-0.28*d);
+vec3 petalW=day4(hx(236.0,210.0,226.0),hx(250.0,214.0,230.0),hx(250.0,180.0,176.0),hx(120.0,86.0,120.0));
+col=mix(col,petalW,rf*calm);
+float glint=smoothstep(0.72,0.96,vnp(vec2(p.x*34.0+t*0.25,rows*3.1-t*0.7)));
+col+=lowSky*glint*(0.10-0.06*d)*calm;
+col*=1.0-0.30*d*d;
+col+=lowSky*0.10*exp(-d*50.0);
+}
+col+=lowSky*0.040*uLevel*exp(-abs(p.y-WATER)*7.0);
+vec3 cTip=day4(hx(244.0,226.0,238.0),hx(255.0,240.0,246.0),hx(255.0,226.0,208.0),hx(255.0,216.0,206.0));
+vec3 cBase=day4(hx(222.0,170.0,204.0),hx(250.0,162.0,194.0),hx(250.0,150.0,152.0),hx(242.0,142.0,150.0));
+vec3 cShade=day4(hx(170.0,140.0,186.0),hx(210.0,150.0,192.0),hx(176.0,100.0,136.0),hx(96.0,70.0,120.0));
+float nightDim=day4f(0.0,0.0,0.10,0.62)*smoothstep(0.90,0.30,p.y);
+vec3 dimCol=day4(hx(120.0,110.0,150.0),hx(120.0,110.0,150.0),hx(110.0,80.0,120.0),hx(52.0,46.0,92.0));
+cTip=mix(cTip,dimCol*1.25,nightDim);
+cBase=mix(cBase,dimCol,nightDim);
+cShade=mix(cShade,dimCol*0.7,nightDim);
+float topFade=mix(0.66,1.0,smoothstep(0.30,0.62,p.y));
+for(int i=0;i<4;i++){
+float fi=float(i);
+vec4 pl=petalLayer(p,fi,t,px,cTip,cBase,cShade,col,1.0);
+float k=calm*topFade*(i==0?1.0-0.6*uSoft:1.0);
+col=col*(1.0-pl.a*k)+pl.rgb*k;
+}
+float side=step(asp*0.5,p.x);
+float sc=clamp(asp/1.39,0.55,1.15);
+vec2 pm=vec2(mix(p.x,asp-p.x,side),p.y)/sc;
+if(pm.x<0.40&&pm.y<0.40){
+vec3 brCol=day4(hx(112.0,98.0,132.0),hx(78.0,54.0,76.0),hx(56.0,34.0,62.0),hx(8.0,8.0,26.0));
+vec3 flA=day4(hx(236.0,212.0,230.0),hx(252.0,216.0,230.0),hx(255.0,204.0,190.0),hx(206.0,146.0,158.0));
+vec3 flB=day4(hx(212.0,176.0,212.0),hx(240.0,168.0,198.0),hx(236.0,138.0,156.0),hx(128.0,84.0,124.0));
+vec3 flC=day4(hx(186.0,130.0,180.0),hx(222.0,110.0,160.0),hx(206.0,90.0,120.0),hx(96.0,54.0,96.0));
+float sd0=1.0+side*3.0+sv*0.37;
+float gx0=side*asp;
+float gs=gust(asp-gx0,t)+0.6*bigGust(t-(asp-gx0)*0.8);
+float dirS=1.0-2.0*side;
+float sway=dirS*(0.036*sin(t*0.83+sd0)+0.09*(gs-0.35)+0.024*sin(t*1.9+sd0*2.0)*gs)*(0.5+uWind);
+float fl1=(0.05*sin(t*1.3+sd0*3.0)+0.03*sin(t*2.3+sd0))*(0.4+uWind)*(0.6+gs);
+float fade=smoothstep(0.5*asp/sc,0.5*asp/sc-0.08,pm.x)*calm;
+vec2 oC=vec2(-0.03,0.02+0.015*side);
+float aC=0.50-0.08*side+sway*0.6;
+float kC=1.4+sway*2.0;
+float LC=0.34-0.07*side;
+vec2 snC=arcSN(pm,oC,aC,kC,LC);
+float dC=max(abs(snC.y)-0.0060*(1.0-0.7*sat(snC.x/LC)),snC.x-LC);
+col=mix(col,brCol,smoothstep(0.012,-0.008,dC)*0.42*fade);
+vec3 bkA=day4(hx(226.0,176.0,216.0),hx(248.0,156.0,196.0),hx(252.0,150.0,146.0),hx(196.0,116.0,154.0));
+vec3 bkB=day4(hx(198.0,144.0,198.0),hx(230.0,116.0,172.0),hx(228.0,108.0,132.0),hx(124.0,72.0,124.0));
+vec4 bk=vec4(0.0);
+for(int i=0;i<12;i++){
+float fi=float(i);
+vec2 h=h22(vec2(fi*3.7+sd0,sd0*1.3+2.0));
+vec2 h2=h22(vec2(fi*5.1+sd0+7.0,4.0));
+float f=(fi-5.5+0.6*h.x)/6.0;
+vec3 pt=arcAt(oC,aC,kC,LC*max(0.06+0.98*f,0.02));
+vec2 c=i<6?vec2(0.01+0.20*h.x*h.x,0.00+0.17*h.y*h.y):pt.xy+(h.y-0.5)*0.090*vec2(-sin(pt.z),cos(pt.z));
+c+=vec2(-0.5,0.25)*sway*dirS*(0.6+h2.x)+0.007*vec2(sin(t*0.5+fi*2.0),cos(t*0.4+fi));
+float rB=i<6?0.040+0.034*h2.x:(0.028+0.026*h2.x)*(1.15-0.40*f);
+float dB=length(pm-c);
+float eB=rB*(0.76+0.24*pow(abs(cos(2.5*(atan(pm.x-c.x,pm.y-c.y+1e-6)+h.x*9.0))),0.5));
+float blB=rB*(0.16+0.26*h2.x);
+float aB=smoothstep(eB+blB,eB-blB,dB)*(0.40+0.30*h2.y);
+vec3 cB2=mix(bkB,bkA,h2.y*0.7+0.45*smoothstep(rB*0.15,rB*0.8,dB));
+bk=vec4(bk.rgb*(1.0-aB)+cB2*aB,bk.a*(1.0-aB)+aB);
+}
+float capB=mix(0.52-0.10*side,0.82,smoothstep(0.125,0.07,pm.x)*smoothstep(0.20,0.12,pm.y));
+col=mix(col,bk.rgb/max(bk.a,1e-3),capB*(1.0-exp(-1.4*bk.a/capB))*fade);
+if(pm.x<0.135&&pm.y<0.215){
+float bl=px*1.5/sc;
+vec2 oA=vec2(0.012,-0.03);
+float aA=1.36-sway*0.5;
+float kA=0.95-sway*1.5;
+vec4 bg=bough(pm,oA,aA,kA,0.215,0.0042,0.013,sd0,bl,flA,flB,flC,brCol);
+vec3 j1=arcAt(oA,aA,kA,0.105);
+vec4 b1=bough(pm,j1.xy,j1.z-1.34-sway*1.2+fl1,1.6,0.085,0.0022,0.010,sd0+1.0,bl,flA,flB,flC,brCol);
+bg=bg*(1.0-b1.a)+b1;
+vec3 j2=arcAt(oA,aA,kA,0.150);
+vec4 b2=bough(pm,j2.xy,j2.z-0.55-sway*1.5-fl1,1.5,0.045,0.0020,0.010,sd0+2.0,bl,flA,flB,flC,brCol);
+bg=bg*(1.0-b2.a)+b2;
+float box=smoothstep(0.125,0.112,pm.x)*smoothstep(0.200,0.186,pm.y)*fade;
+col=col*(1.0-bg.a*box)+bg.rgb*box;
+}
+}
+for(int i=4;i<6;i++){
+float fi=float(i);
+vec4 pl=petalLayer(p,fi,t,px,cTip,cBase,cShade,col,0.8);
+float k=calm*mix(0.55,1.0,smoothstep(0.25,0.60,p.y));
+col=col*(1.0-pl.a*k)+pl.rgb*k;
+}
+return finish(col,xy);
+}
+uniform float uDim;
+uniform vec4 uVeil;
+uniform float uFade;
+void main() {
+    vec4 c = sceneMain(vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y));
+    gl_FragColor = vec4(mix(c.rgb, uVeil.rgb, uVeil.a) * (1.0 - uDim), uFade);
+}

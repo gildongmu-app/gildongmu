@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+// 새로고침하면 보던 자리로 돌아가지 않고, 처음 들어올 때처럼 첫 화면부터 다시 시작한다 (주소 뒤의 #자리 표시도 뗀다).
+// 뒤로 가기로 돌아올 때는 보던 자리를 그대로 둔다. 화면이 그려지기 전에 정해야 해서 여기(머리)에 둔다.
+(function () {
+  try {
+    var n = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    var type = n ? n.type : (performance.navigation && performance.navigation.type === 1 ? 'reload' : performance.navigation && performance.navigation.type === 2 ? 'back_forward' : 'navigate');
+    history.scrollRestoration = type === 'back_forward' ? 'auto' : 'manual';
+    if (type === 'reload') {
+      if (location.hash) history.replaceState(history.state, '', location.pathname + location.search);
+      window.gdFresh = true;
+    }
+  } catch (e) {}
+})();
+</script>
+<title>길동무 — 운전길에 말로 쓰는 일기</title>
+<meta name="description" content="혼자 운전하는 차 안에서 건넨 말 한마디가 나의 일기가 되고, 길 위에 남기면 그 길을 지나는 누군가에게 온기가 됩니다. Pleos Connect 차량용 음성 일기 앱, 길동무.">
+<meta name="theme-color" content="#0B0D1A">
+<meta property="og:title" content="길동무 — 운전길에 말로 쓰는 일기">
+<meta property="og:description" content="차 안의 혼잣말이, 오늘의 일기가 됩니다.">
+<meta property="og:type" content="website">
+<link rel="icon" href="icon.png">
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/gd-serif-600.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/gd-sans-400.woff2" crossorigin>
+<link rel="preload" as="image" href="assets/img/scene-rain.jpg">
+<link rel="stylesheet" href="assets/css/site.css">
+<link rel="stylesheet" href="assets/fonts/ranges.css">
+</head>
+<body>
+<div id="still" aria-hidden="true"></div>
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+<a class="skip" href="#why">본문으로 건너뛰기</a>
+
+<header class="nav" id="nav">
+  <a class="brand" href="#top" aria-label="길동무, 처음으로"><span class="mark" data-mark></span><b>길동무</b></a>
+  <nav aria-label="차례">
+    <a href="#why">왜 만들었나</a>
+    <a href="#how">한 번의 퇴근길</a>
+    <a href="#features">기능</a>
+    <a href="#try">해 보기</a>
+    <a href="#demo">시연 영상</a>
+    <a href="#make">만든 방법</a>
+  </nav>
+  <a class="btn ghost sm" data-gh href="#make">코드 보기</a>
+  <i class="progress" aria-hidden="true"></i>
+</header>
+
+<main>
+<!-- ───────── 처음: 밤길을 달리는 차 위로 한마디들이 적히고, 길의 두 선이 따옴표가 되어 로고로 모인다 (앱의 첫 화면과 같은 장면) ───────── -->
+<section class="hero" id="top" data-scene="rain" data-day="3" data-rain="1" data-soft=".5" data-dim=".34">
+  <canvas class="light" aria-hidden="true"></canvas>
+  <div class="hero-in">
+    <span class="mark xl" data-mark="live" id="heroMark"></span>
+    <h1 class="hero-title" id="heroTitle">차 안의 혼잣말이,<br>오늘의 일기가 됩니다.</h1>
+    <p class="hero-sub">길동무 — 운전길에 말로 쓰는 일기. 말 한마디가 나의 일기가 되고,<br class="wide">길 위에 남기면 그 길을 지나는 누군가에게 온기가 됩니다.</p>
+    <div class="hero-cta">
+      <a class="btn primary" href="#demo"><i class="ic play"></i>시연 영상 보기</a>
+      <a class="btn" href="#try">직접 한마디 남겨 보기</a>
+    </div>
+  </div>
+  <i class="beam" aria-hidden="true"></i>
+  <a class="scroll-cue" href="#why">왜 만들었나<i></i></a>
+  <button class="skip-intro" type="button" id="skipIntro">건너뛰기</button>
+</section>
+
+<!-- ───────── 왜 만들었나 ───────── -->
+<section class="why" id="why">
+  <div class="beat" data-scene="rain" data-day="3" data-rain="1" data-soft="1" data-dim=".62">
+    <p class="eyebrow" data-r>만든 이유</p>
+    <h2 class="say" data-lines>요즘을 ‘각자도생의 시대’라고<br>합니다.</h2>
+    <p class="lead" data-r>도로 위에서는 더 그렇습니다. 옆 차의 운전자는 비켜 가야 할 차일 뿐이고,<br class="wide">운전자끼리 주고받는 것은 경적과 상향등이 거의 전부입니다.</p>
+    <p class="say sm warm" data-lines>하지만 같은 길을 달리는 사람들은,<br>같은 하루를 견디고 있는 사람들입니다.</p>
+  </div>
+
+  <div class="beat alone" data-scene="city" data-day="3" data-soft=".5" data-dim=".4">
+    <p class="eyebrow" data-r>주목한 순간</p>
+    <h2 class="say" data-lines>하루 중 드물게,<br>혼자 있는 시간.</h2>
+    <p class="lead" data-r>출퇴근길에는 그날 있었던 일과 감정이 가장 많이 떠오릅니다.<br class="wide">하지만 손도 눈도 쓸 수 없어 적지 못하고, 차에서 내리면 사라집니다.</p>
+    <ul class="vanish" aria-label="차 안에서 혼자 한 말들">
+      <li data-type>“아 오늘 하루도 고생했다. 어서 집에 가서 쉬자.”</li>
+      <li data-type>“팀장한테 깨지고, 야근도 하고… 힘들다.”</li>
+      <li data-type>“엄마한테 전화나 해 볼까. 괜히 보고 싶네.”</li>
+      <li data-type>“아 비 오니까 길 진짜 막힌다. 어떡하지 진짜.”</li>
+    </ul>
+    <p class="note" data-r>아무도 듣지 못한 채, 사라지는 말들.</p>
+  </div>
+
+  <div class="beat" data-scene="city" data-day="3" data-soft=".9" data-dim=".55">
+    <p class="eyebrow" data-r>지금의 방법으로는</p>
+    <ul class="nots">
+      <li data-r><b>휴대폰 일기 앱</b><span>손과 눈이 필요해, 운전 중에는 쓸 수 없습니다.</span></li>
+      <li data-r><b>음성 메모</b><span>쌓이기만 할 뿐, 다시 듣지 않게 됩니다.</span></li>
+      <li data-r><b>차량 음성 비서</b><span>‘명령’을 듣는 도구라, 마음을 묻지 않습니다.</span></li>
+      <li data-r><b>운전 중 SNS</b><span>이어지고 싶어도, 위험해서 하면 안 됩니다.</span></li>
+    </ul>
+  </div>
+
+  <div class="beat answer" data-scene="ridges" data-day="0" data-soft=".35" data-dim=".3">
+    <p class="eyebrow" data-r>그래서</p>
+    <h2 class="say" data-lines>그 말을 들어 주는 차를<br>만들었습니다.</h2>
+    <p class="lead" data-r>길동무는 차 안에서 혼자 삼키던 말을 들어 일기로 남겨 주고, 원하면 그 말을 길 위에 놓아두어<br class="wide">다음에 그 길을 지나는 사람에게 건넵니다. 날마다 혼자 있는 운전자를 만나는 차 안이야말로,<br class="wide">차가워진 시대에 따뜻함을 건넬 수 있는 좋은 기회라고 생각했습니다.</p>
+    <ol class="needs">
+      <li data-r><i>01</i><b>말만으로 끝나는 기록</b><span>구슬을 한 번 누르고 말하면, 받아 적어 일기에 담습니다.</span></li>
+      <li data-r><i>02</i><b>함께 쓰는 차에서도 지켜지는 내 이야기</b><span>운전자마다 계정이 따로 있고, 목소리로 일기의 주인을 확인합니다.</span></li>
+      <li data-r><i>03</i><b>길 위의 느슨하고 따뜻한 연결</b><span>누군가 그 자리에 남긴 한마디가, 지나갈 때 저절로 켜집니다.</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ───────── 로고: 말이 길이 되어, 누군가에게 닿는다 ───────── -->
+<section class="story" id="mark" data-scene="city" data-day="3" data-soft="1" data-dim=".72">
+  <div class="story-mark"><span class="mark hero-size" data-mark="scroll"></span></div>
+  <div class="story-text">
+    <p class="eyebrow" data-r>로고 「따옴길」</p>
+    <h2 class="say sm" data-lines>말이 길이 되어,<br>누군가에게 닿습니다.</h2>
+    <ol class="anatomy">
+      <li data-r data-part="q"><b>따옴표</b><span>차 안에서 한 말 한마디.</span></li>
+      <li data-r data-part="d"><b>차선</b><span>따옴표의 꼬리가 차선이 되어 길을 따라 뻗습니다.</span></li>
+      <li data-r data-part="l"><b>길 끝의 불빛</b><span>그 말이 닿는 곳. 그 길을 지나는 누군가.</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ───────── 한 번의 퇴근길: 실제 앱 화면으로 ───────── -->
+<section class="how" id="how" data-scene="rain" data-day="3" data-rain="1" data-soft="1" data-dim=".64">
+  <div class="head">
+    <p class="eyebrow" data-r>대표 장면</p>
+    <h2 class="say" data-lines>야근한 날,<br>밤 9시 47분의 퇴근길.</h2>
+    <p class="lead" data-r>아래는 그림이 아니라, Pleos Connect 에뮬레이터에서 실제로 동작하는 앱을 녹화한 화면입니다.</p>
+  </div>
+  <div class="walk">
+    <div class="stage" aria-hidden="true">
+      <div class="display">
+        <video muted playsinline loop preload="none" data-step="0" poster="assets/media/how1.jpg" src="assets/media/how1.mp4"></video>
+        <video muted playsinline loop preload="none" data-step="1" poster="assets/media/how2.jpg" src="assets/media/how2.mp4"></video>
+        <video muted playsinline loop preload="none" data-step="2" poster="assets/media/how3.jpg" src="assets/media/how3.mp4"></video>
+        <video muted playsinline loop preload="none" data-step="3" poster="assets/media/how4.jpg" src="assets/media/how4.mp4"></video>
+        <video muted playsinline loop preload="none" data-step="4" poster="assets/media/how5.jpg" src="assets/media/how5.mp4"></video>
+      </div>
+      <div class="dots"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+    <ol class="steps">
+      <li data-step="0"><i>01</i><h3>차에 타면, 먼저 인사를 건넵니다</h3>
+        <p>운전자를 알아보고, 큰 글씨와 목소리로 인사합니다. 길동무의 목소리는 운전자와 다른 성별로 맞추고, 설정에서 바꿀 수 있습니다.</p>
+        <blockquote>“어서 오세요, 도현님. 늦게까지 수고 많았어요.”<cite>길동무</cite></blockquote></li>
+      <li data-step="1"><i>02</i><h3>길동무가 먼저 묻습니다</h3>
+        <p>평소 출발 시각의 기록과 견주어, 오늘이 평소와 다른 날이라는 것을 압니다. 혼자 탔을 때만 묻습니다.</p>
+        <blockquote>“오늘은 평소보다 3시간쯤 늦게 퇴근하시네요. 오늘 하루, 많이 고단하셨나요?”<cite>길동무</cite></blockquote></li>
+      <li data-step="2"><i>03</i><h3>말하면, 받아 적힙니다</h3>
+        <p>말하는 동안 내 말이 화면에 적히고, 말을 멈추면 스스로 듣기를 마치고 일기에 담습니다.</p>
+        <blockquote class="me">“하… 오늘 정말 하루가 힘들었어. 팀장한테 깨지고, 야근도 하고… 힘들다.”<cite>도현</cite></blockquote></li>
+      <li data-step="3"><i>04</i><h3>AI가 마음결을 읽고, 길동무가 답합니다</h3>
+        <p>기기 안의 AI가 읽은 마음결은 <em class="chip tired">지침</em>. 말은 내 일기에만 담기고, 단추 하나로 길 위에도 남길 수 있습니다.</p>
+        <blockquote>“혼나고, 야근까지. 오늘 정말 애쓰셨어요.”<cite>길동무</cite></blockquote></li>
+      <li data-step="4"><i>05</i><h3>달리는 동안에는 한 줄, 신호에 서면 한마디</h3>
+        <p>집에 가는 길. 달리는 동안에는 글 없이 한 줄과 목소리뿐이고, 빨간 신호에 서 있는 동안에만 글이 보입니다.</p>
+        <blockquote class="road">“오늘 모두 야근 고생하셨고, 집 가서 행복하게 사랑하는 사람과 마무리하세요.”<cite>익명의 길동무 · 34분 전</cite></blockquote></li>
+    </ol>
+  </div>
+  <p class="after" data-r>모르는 사람의 한마디에 마음이 풀린 채, 도현 씨는 집으로 갑니다.</p>
+</section>
+
+<!-- ───────── 기능 ───────── -->
+<section class="features" id="features" data-scene="reeds" data-day="2" data-soft=".75" data-dim=".5">
+  <div class="head">
+    <p class="eyebrow" data-r>기능</p>
+    <h2 class="say" data-lines>명령이 아니라,<br>마음을 듣는 차.</h2>
+  </div>
+  <div class="bento">
+    <article class="card wide" data-r>
+      <div class="shot"><video muted playsinline loop preload="none" poster="assets/media/f_share.jpg" src="assets/media/f_share.mp4?v=1114"></video></div>
+      <div class="txt"><h3>말을 남기는 곳은 내가 정합니다</h3>
+        <p>‘내 일기에만’(기본)과 ‘길 위에도 남기기’ 가운데 고릅니다. 길 위에는 이름 없이 남습니다. 욕설이나 누군가를 깎아내리고 위협하는 말은 어디에도 담지 않고, 다듬어서 다시 말해 달라고 청합니다. 전화번호 같은 개인 정보(말로 읽은 숫자 포함)와 광고는 AI 필터가 알아서 걸러, 까닭을 알리고 일기에만 담습니다.</p></div>
+    </article>
+    <article class="card" data-r>
+      <div class="shot"><video muted playsinline loop preload="none" poster="assets/media/f_voice.jpg" src="assets/media/f_voice.mp4"></video></div>
+      <div class="txt"><h3>목소리로 일기 주인 확인</h3>
+        <p>다른 목소리가 들리면 “혹시 서윤님이신가요?” 하고 누구의 일기에 담을지 먼저 묻습니다. 녹음은 남기지 않습니다.</p></div>
+    </article>
+    <article class="card" data-r>
+      <div class="shot"><video muted playsinline loop preload="none" poster="assets/media/f_book.jpg" src="assets/media/f_book.mp4"></video></div>
+      <div class="txt"><h3>일기장과 마음 달력</h3>
+        <p>그날의 말들이 시간의 줄에 꿰이고, 한 달은 마음결로 물든 달력으로 돌아봅니다.</p></div>
+    </article>
+    <article class="card" data-r>
+      <div class="shot"><video muted playsinline loop preload="none" poster="assets/media/f_road.jpg" src="assets/media/f_road.mp4"></video></div>
+      <div class="txt"><h3>길 위의 한마디</h3>
+        <p>내비게이션이 아닙니다. 누군가 그 자리에 남긴 한마디를 둘러보고, 공감하거나 이어서 한마디를 남깁니다.</p></div>
+    </article>
+    <article class="card" data-r>
+      <div class="shot"><video muted playsinline loop preload="none" poster="assets/media/f_friends.jpg" src="assets/media/f_friends.mp4"></video></div>
+      <div class="txt"><h3>친구들의 오늘</h3>
+        <p>같은 앱을 쓰는 친구끼리 오늘의 한마디와 공감을 나눕니다. 주차 중에만 열립니다.</p></div>
+    </article>
+    <article class="card wide scenes" data-r>
+      <div class="txt"><h3>살아 있는 바탕</h3>
+        <p>화면 뒤의 풍경은 사진이 아니라, 앱이 그 자리에서 그리는 장면 열 가지입니다. 처음에는 길동무의 얼굴인 ‘빗빛 · 밤’이 깔리고, 계절·시각·날씨를 따라 바뀌게 둘 수도 있습니다. <b>지금 이 페이지의 배경이 바로 그 장면입니다.</b> 눌러서 바꿔 보세요.</p>
+        <div class="picker" id="scenePicker" role="group" aria-label="장면 고르기"></div>
+        <div class="times" id="dayPicker" role="group" aria-label="때 고르기"></div>
+      </div>
+    </article>
+    <article class="card wide car" data-r>
+      <div class="txt"><h3>휴대폰이 아니라 차여야 하는 이유</h3>
+        <ul class="knows">
+          <li><b>기어</b>출발과 도착을 알아, 운행 기록을 쌓습니다</li>
+          <li><b>좌석</b>혼자 탔을 때만 먼저 묻습니다</li>
+          <li><b>와이퍼</b>비가 오면 물음도, 바탕도 달라집니다</li>
+          <li><b>빠르기</b>달리는 동안에는 글을 치우고, 서 있을 때만 보입니다</li>
+        </ul></div>
+    </article>
+  </div>
+</section>
+
+<!-- ───────── 해 보기: 앱의 AI 를 브라우저에서 그대로 ───────── -->
+<section class="try" id="try" data-scene="coast" data-day="2" data-soft=".7" data-dim=".5">
+  <div class="head">
+    <p class="eyebrow" data-r>직접 해 보기</p>
+    <h2 class="say" data-lines>오늘의 한마디를<br>남겨 보세요.</h2>
+    <p class="lead" data-r>앱에 들어 있는 것과 <b>같은 AI 모델 파일</b>을 이 페이지에서 그대로 돌립니다. 입력한 말은 이 페이지 밖으로 나가지 않습니다.</p>
+  </div>
+  <div class="console" data-r>
+    <div class="ask"><span class="orb" aria-hidden="true"></span><p id="tryAsk">오늘 하루, 어땠나요?</p></div>
+    <form id="tryForm" autocomplete="off">
+      <label class="sr" for="tryText">오늘의 한마디</label>
+      <input id="tryText" type="text" maxlength="120" placeholder="차 안에서 혼잣말하듯, 한마디 적어 보세요" enterkeyhint="send">
+      <button class="btn primary" type="submit">담기</button>
+    </form>
+    <div class="row">
+      <div class="seg" role="radiogroup" aria-label="말한 것을 남기는 곳">
+        <button type="button" role="radio" aria-checked="true" data-share="diary">내 일기에만</button>
+        <button type="button" role="radio" aria-checked="false" data-share="road">길 위에도 남기기</button>
+      </div>
+      <p class="hint" id="tryHint">말은 내 일기에만 담깁니다.</p>
+    </div>
+    <div class="chips" id="tryChips" aria-label="예시 한마디"></div>
+    <div class="result" id="tryResult" aria-live="polite" hidden>
+      <div class="left">
+        <p class="saved"><span id="trySaved">오늘의 기록에 담았어요</span> · <em class="chip" id="tryMood">지침</em></p>
+        <p class="reply" id="tryReply"></p>
+        <p class="where" id="tryWhere"></p>
+      </div>
+      <div class="bars" id="tryBars" aria-label="AI 가 읽은 일곱 가지 마음결"></div>
+    </div>
+    <ul class="diary" id="tryDiary" aria-label="오늘 담은 말"></ul>
+  </div>
+  <p class="fine" data-r>모델은 글자 1~3개 묶음을 특징으로 한 로지스틱 회귀입니다. 예시 문장 <b data-meta="mood_train">594</b>개로 학습했고, 아직 문장 수가 적어 틀리게 읽을 때가 있습니다. 욕설이나 거친 말은 어디에도 담지 않고 다시 적어 달라고 청하며, 개인 정보와 광고는 길 위에 올릴 때 걸러 냅니다.</p>
+</section>
+
+<!-- ───────── 시연 영상 ───────── -->
+<section class="demo" id="demo" data-scene="rain" data-day="3" data-rain="1" data-soft="1" data-dim=".7">
+  <div class="head">
+    <p class="eyebrow" data-r>시연 영상</p>
+    <h2 class="say" data-lines>실제로 동작하는<br>화면 그대로.</h2>
+    <p class="lead" data-r>Pleos Connect 에뮬레이터에서 앱을 녹화했습니다. 화면은 실제 동작 그대로이고, 목소리는 앱이 말하는 문장 그대로 다시 녹음해 화면에 맞춰 얹었습니다. 두 번째 영상은 앱을 처음 깐 상태부터, 화면을 실제로 눌러 가며 끊지 않고 한 번에 찍은 것입니다.</p>
+  </div>
+  <div class="reels" data-r role="tablist" aria-label="영상 고르기">
+    <button type="button" role="tab" aria-selected="true" data-reel="demo"><b>시연 영상</b><small>기능을 장면별로 · 3분 52초</small></button>
+    <button type="button" role="tab" aria-selected="false" data-reel="emul"><b>실제 에뮬레이터 시연</b><small>처음 실행부터 끊지 않고 · 2분 15초</small></button>
+  </div>
+  <div class="player" data-r>
+    <div class="display"><video id="demoVideo" controls playsinline preload="metadata" poster="assets/media/demo.jpg?v=1114b" src="assets/media/demo.mp4?v=1114b"></video></div>
+    <ol class="chapters" id="chapters" aria-label="영상의 장면"></ol>
+  </div>
+</section>
+
+<!-- ───────── 만든 방법 · 코드 ───────── -->
+<section class="make" id="make" data-scene="aurora" data-day="3" data-soft=".6" data-dim=".45">
+  <div class="head">
+    <p class="eyebrow" data-r>만든 방법</p>
+    <h2 class="say" data-lines>차가 아는 것과,<br>기기 안의 AI 로.</h2>
+  </div>
+  <div class="cols">
+    <div class="sdk" data-r>
+      <h3>Pleos Connect SDK</h3>
+      <dl>
+        <dt>Vehicle <small>2.3.2</small></dt><dd>기어로 출발·도착, 좌석으로 혼자인지, 와이퍼로 비가 오는지</dd>
+        <dt>SpeechToText <small>3.3.1</small></dt><dd>기기 안에서 말을 글로. 소리는 저장하지 않고 글만 남깁니다</dd>
+        <dt>TextToSpeech <small>3.3.1</small></dt><dd>인사·물음·답과 지나는 길의 한마디를 목소리로. 화자는 여성·남성 네 가지 가운데 고릅니다</dd>
+        <dt>NaviHelper <small>3.0.5</small></dt><dd>현재 위치 받기, 기본 내비 화면으로 돌아가기</dd>
+      </dl>
+      <p class="env">Kotlin · Jetpack Compose · Android 14 (API 34) · Pleos Connect 에뮬레이터</p>
+    </div>
+    <div class="nums" data-r>
+      <h3>기기 안의 AI</h3>
+      <ul>
+        <li><b><span data-count="594">594</span><small>문장</small></b>마음결 모델을 학습시킨 예시 문장</li>
+        <li><b><span data-count="93">93</span><small>%</small></b>학습에 쓰지 않은 75문장 가운데 70개를 맞힘</li>
+        <li><b><span data-count="11">11</span><small>/ 13</small></b>따로 둔 해치는 말을 막음 (괜찮은 말 95문장은 하나도 잘못 막지 않음)</li>
+        <li><b><span data-count="0">0</span><small>/ 66</small></b>괜찮은 말을 잘못 막은 경우</li>
+      </ul>
+      <p class="env">인터넷 없이 기기 안에서 돌아, 말이 밖으로 나가지 않습니다.</p>
+    </div>
+  </div>
+  <div class="code" data-r>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-code="0">마음결을 읽는 모델</button>
+      <button role="tab" aria-selected="false" data-code="1">말로 읽은 전화번호 잡기</button>
+      <a class="file" data-gh="app/src/main/java/com/gildongmu/app/Ai.kt" href="#make">Ai.kt<i class="ic ext"></i></a>
+    </div>
+<pre data-code="0"><code>/** 글자 1~3개 묶음 (낱말의 처음과 끝을 알 수 있게 앞뒤에 칸을 붙인다) */
+fun feats(s: String): Set&lt;String&gt; {
+    val t = " " + norm(s) + " "
+    val fs = HashSet&lt;String&gt;()
+    for (n in 1..3) for (i in 0..t.length - n) {
+        val g = t.substring(i, i + n)
+        if (g.isNotBlank()) fs.add(g)
+    }
+    return fs
+}
+
+fun predict(text: String): FloatArray {
+    val fs = feats(text)
+    val v = 1f / sqrt(maxOf(1, fs.size).toFloat())
+    val z = bias.copyOf()
+    for (f in fs) w[f]?.let { row -&gt; for (k in z.indices) z[k] += row[k] * v }
+    val mx = z.max()                       // 일곱 마음결의 확률로
+    var sum = 0f
+    for (k in z.indices) { z[k] = exp(z[k] - mx); sum += z[k] }
+    for (k in z.indices) z[k] /= sum
+    return z
+}</code></pre>
+<pre data-code="1" hidden><code>/** 말로 읽은 숫자도 숫자로 본다: 음성 인식은 '0102481 삼오칠구'처럼 숫자와 말을 섞어 적기도 한다 */
+private val digitWord = mapOf('공' to '0', '영' to '0', '일' to '1', '이' to '2', '삼' to '3', '사' to '4',
+                              '오' to '5', '육' to '6', '륙' to '6', '칠' to '7', '팔' to '8', '구' to '9')
+
+/** 숫자를 읽은 말(세 글자 이상 이어질 때만)을 숫자로 바꾸고, 숫자 사이의 칸·점·줄표를 없앤다 */
+private fun digits(text: String): String {
+    val sb = StringBuilder(text.length)
+    var i = 0
+    while (i &lt; text.length) {
+        var j = i
+        while (j &lt; text.length &amp;&amp; text[j] in digitWord) j++
+        if (j - i &gt;= 3) { for (k in i until j) sb.append(digitWord[text[k]]); i = j }
+        else { sb.append(text[i]); i++ }
+    }
+    return sb.toString().replace(Regex("(?&lt;=\\d)[\\s.-]+(?=\\d)"), "")
+}</code></pre>
+  </div>
+  <div class="repo" data-r>
+    <div><h3>소스 코드</h3><p>앱의 모든 코드와 이 웹사이트, release APK, 실행 방법을 저장소에 올려 두었습니다.</p></div>
+    <div class="links">
+      <a class="btn primary" data-gh href="#make"><i class="ic gh"></i>GitHub 저장소</a>
+      <a class="btn" data-gh="apk" href="#make">release APK</a>
+      <a class="btn" data-gh="README.md" href="#make">실행 방법</a>
+    </div>
+  </div>
+  <details class="honest" data-r>
+    <summary>아직 시연용인 부분</summary>
+    <ul>
+      <li>다른 운전자와 친구의 글·공감은 기기 안의 예시 데이터이고, 길 위에 남긴 내 말도 지금은 이 기기 안에서만 보입니다(서버 미구현).</li>
+      <li>주행은 에뮬레이터에서 재현했습니다. 실제 주행 중 화면 표시는 주행 중 사용 승인 절차가 필요합니다.</li>
+      <li>먼저 묻는 판단과 답의 문장은 규칙과 문장 틀로 만들고, 목소리 확인은 간이 비교입니다. 지도는 성수동·서울숲 일대만 담았습니다.</li>
+    </ul>
+  </details>
+</section>
+
+<!-- ───────── 맺음 ───────── -->
+<section class="closing" data-scene="rain" data-day="3" data-rain="1" data-soft=".3" data-dim=".3">
+  <span class="mark xl" data-mark="live"></span>
+  <h2 class="say" data-lines>오늘의 한마디를<br>남겨 주세요.</h2>
+  <p class="lead" data-r>도로 위에는 경적만 오갔습니다. 길동무는 그 길을 지나던 사람의 마음과 응원을 건넵니다.</p>
+  <div class="hero-cta" data-r>
+    <a class="btn primary" href="#demo"><i class="ic play"></i>시연 영상 보기</a>
+    <a class="btn" data-gh href="#make"><i class="ic gh"></i>코드 보기</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <p class="maker"><b>Made by 한끗 Team</b><span>© 2026 한끗 · All rights reserved</span>
+    <button type="button" id="makerBtn" aria-expanded="false" aria-controls="makerForm">제작자 서명</button></p>
+  <form id="makerForm" hidden autocomplete="off">
+    <span>이 페이지와 앱에는 만든 사람의 서명이 암호로 봉인되어 있습니다. 비밀번호를 아는 사람만 열 수 있고, 지우거나 다른 이름으로 바꿔 넣을 수 없습니다.</span>
+    <label class="sr" for="makerPw">비밀번호</label><input id="makerPw" type="password" placeholder="비밀번호" autocomplete="off">
+    <button class="btn sm" type="submit">서명 열기</button>
+    <output id="makerOut" aria-live="polite"></output>
+  </form>
+  <p><b>길동무</b> · 운전길에 말로 쓰는 일기 · 현대자동차그룹 차량용 앱 개발 공모전 출품작 <span>#HMG차량용앱개발공모전</span></p>
+  <p>화면은 모두 Pleos Connect 에뮬레이터에서 실제로 동작하는 앱입니다. 글 속의 이름(도현·서윤)과 예시 글은 지어낸 것입니다.<br>
+  지도 © OpenStreetMap contributors · 글꼴 마루 부리, Pretendard (SIL OFL 1.1, 일부 글자만 담아 다른 이름으로 실음)</p>
+</footer>
+<script type="module" src="assets/js/site.js"></script>
+</body>
+</html>

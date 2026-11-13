@@ -1,0 +1,21 @@
+{
+  "packageName": "com.gildongmu.app",
+  "appDescription": "A voice diary for drivers that turns short spoken thoughts in the car into daily and monthly diary pages.",
+  "invokeWord": "길동무",
+  "version": "0.1.0",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "START_DIARY",
+        "description": "Start listening so the user can speak a short diary entry about how they feel right now.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "component": "activity"
+      }
+    }
+  ]
+}

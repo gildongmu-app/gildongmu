@@ -1,0 +1,477 @@
+// 빗빛 — 비 오는 창.
+// 김이 옅게 서린 차창 너머로 초점이 나간 도시의 불빛이 번지고, 유리에 맺힌 물방울마다 그 불빛이 거꾸로 비친다.
+// 큰 물방울은 띄엄띄엄, 멈칫거리며 흘러내려 맑은 물길을 남긴다. 밤엔 남보랏빛, 노을엔 푸른 저녁, 낮엔 회청색, 새벽엔 푸르스름한 비.
+//
+// 그리는 차례: ① 유리에 맺힌 물방울 네 겹과 흘러내리는 물방울 두 겹의 자리를 구한다 ② 김 서린 유리 너머의 거리를 그린다
+// ③ 물방울이 덮은 픽셀에서는 거리를 한 번 더, 뒤집힌 넓은 시야로 그려 볼록렌즈처럼 비추고 윤기를 얹는다.
+
+const float HZ = 0.70;             // 거리의 불빛이 모이는 높이 (uv.y)
+const float TAU = 6.2831853;
+const float ACC = 0.12;            // 흘러내릴수록 걸음이 커지는 정도
+
+// smoothstep(0,1,x) 를 거꾸로 푼 것 (물방울이 어느 높이를 언제 지나갔는지 되짚는 데 쓴다)
+float invSmooth(float y) { return 0.5 - sin(asin(1.0 - 2.0 * clamp(y, 0.0, 1.0)) / 3.0); }
+
+// 물방울이 흘러내리는 길의 굽이 (차선 너비를 1 로 본 값)
+float wig(float y, float ph) {
+    return 0.070 * sin(y * 2.9 + ph) + 0.030 * sin(y * 9.0 + ph * 1.7 + 1.2 * sin(y * 4.0 + ph * 0.6))
+         + 0.007 * sin(y * 27.0 + ph * 2.3 + 1.4 * sin(y * 11.0 + ph)) + 0.003 * sin(y * 67.0 + ph * 3.1);
+}
+
+// 불빛의 빛깔. h 로 갈래를, v 로 그 안의 결을 고른다. kind: 0 섞인 빛 · 1 가로등과 신호등 · 2 전조등 · 3 미등
+vec3 tint(float h, float v, float kind, vec3 ca, vec3 cb, vec3 cc, vec3 cd) {
+    if (kind < 0.5) {
+        vec3 warm = mix(ca, ca * vec3(1.0, 0.80, 0.62), v);
+        vec3 pink = mix(cb, hx(255.0, 64.0, 72.0), v * 0.7);
+        vec3 cool = mix(cc, hx(70.0, 226.0, 214.0), smoothstep(0.5, 0.9, v));
+        vec3 c = mix(warm, pink, smoothstep(0.50, 0.56, h));
+        c = mix(c, cool, smoothstep(0.74, 0.80, h));
+        c = mix(c, cd * 0.80, smoothstep(0.93, 0.97, h));
+        return c;
+    }
+    if (kind < 1.5) {
+        // 가로등은 따뜻하게, 다섯에 하나는 신호등: 빨강과 초록 사이를 천천히 오간다
+        vec3 lamp = mix(ca, cd, 0.30 * v);
+        float sw = smoothstep(0.46, 0.54, abs(fract(uTime / 46.0 + v * 5.0) - 0.5) * 2.0);
+        vec3 sig = mix(hx(255.0, 62.0, 70.0), hx(60.0, 232.0, 164.0), sw);
+        return mix(lamp, sig, step(0.80, h));
+    }
+    if (kind < 2.5) return mix(cd, ca, 0.15 + 0.45 * v) * 0.85;
+    return mix(hx(255.0, 48.0, 60.0), hx(255.0, 96.0, 64.0), v * 0.6);
+}
+
+// 빛망울 한 겹. q 장면 좌표, shift 옆으로 흘러간 거리, cell 칸 크기, rr 반지름(작은 것, 큰 것),
+// band 띠(가운데 높이, 퍼짐, 촘촘함), md(x 반지름 배율, y 가장자리 무르기, z 테두리 밝기, w 가장 작은 반지름)
+// 칸마다 불빛이 하나씩 흩어져 있고, 픽셀은 가까운 네 칸만 본다. 닿지 않는 불빛은 바로 건너뛴다.
+vec3 bokeh(vec2 q, float shift, vec2 cell, vec2 rr, vec3 band, float seed, float kind, vec4 md, vec3 ca, vec3 cb, vec3 cc, vec3 cd) {
+    if (abs(q.y - band.x) > band.y * 2.3 + cell.y) return vec3(0.0);     // 이 높이에는 이 겹의 불빛이 없다
+    vec2 g = q / cell;
+    g.x += mod(shift / cell.x, 89.0);                                    // 89 칸마다 같은 무늬가 되풀이된다 (끝없이 달려도 튀지 않게)
+    vec2 b0 = floor(g - 0.5);
+    vec2 ctr = vec2(0.5 * uSize.x / uSize.y + g.x * cell.x - q.x, 0.5);
+    float glassK = step(0.95, md.x);                                     // 유리 너머로 볼 때 (물방울 속이 아닐 때)
+    float sx = 1.0 - 0.15 * glassK * smoothstep(0.6, 1.0, uWind);        // 달릴 때는 불빛이 옆으로 살짝 번진다
+    float reach = 0.54 * min(cell.x, cell.y);
+    vec4 kk = floor(89.0 * cell.x / vec4(1.2, 3.6, 2.8, 7.0) + 0.5) * (TAU / 89.0);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 4; i++) {
+        float fi = float(i);
+        vec2 id = b0 + vec2(mod(fi, 2.0), floor(fi * 0.5));
+        vec2 j = h22(vec2(mod(id.x, 89.0), id.y) * 1.31 + seed);
+        vec2 c = id + 0.5 + (j - 0.5) * 0.9;
+        vec2 dv = (g - c) * cell;
+        dv.x *= sx;
+        float d0 = length(dv);
+        if (d0 < reach) {
+            float h = fract(j.x * 57.7 + j.y * 131.3);
+            // 불빛은 고르게 흩어지지 않고 네거리마다 모여 있다
+            float crowd = 0.78 + 0.42 * sin(c.x * kk.x + 2.0 * sin(c.x * kk.y));
+            float on = smoothstep(0.0, 0.10, exp(-sq((c.y * cell.y - band.x) / band.y)) * band.z * crowd - h);
+            if (on > 0.0) {
+                float h2 = fract(h * 37.31);
+                float h3 = fract(h * 91.73);
+                float h4 = fract(h * 173.9);
+                float h5 = fract(h * 251.3);
+                float r0 = mix(rr.x, rr.y, h2);
+                float r = min(max(r0 * md.x, md.w), reach * 0.8);
+                // 화면 가장자리의 빛망울은 렌즈에 살짝 잘려 고양이 눈처럼 갸름해진다
+                float d = max(d0, length(dv + (c * cell - ctr) * (r * 0.45 * glassK)));
+                float e = max(r * md.y, 0.0005);
+                float a = smoothstep(r + e, r - e, d);
+                // 속은 고르게, 가장자리에는 가는 밝은 테. 한쪽이 살짝 더 밝고 양파 껍질 같은 결이 아주 옅게 돈다
+                float rim = md.z * smoothstep(0.006, 0.028, r);
+                a *= 0.62 + 0.05 * d / r + rim * (0.55 * smoothstep(r * 0.78, r * 0.95, d) + 0.09 * dot(dv, vec2(0.6, -0.8)) / r + 0.03 * sin(d / r * 19.0 + h3 * 20.0));
+                a += glassK * (0.10 + 0.42 * (1.0 - md.z)) * sat(1.0 - d / reach);                  // 비와 김에 번진 빛무리
+                // 동네마다 빛깔이 쏠린다 (따뜻한 동네, 네온의 동네)
+                float dn = 0.5 + 0.5 * sin(c.x * kk.z + 1.7 * sin(c.x * kk.w + 4.0));
+                float hc = mix(h3 * 0.66, 0.30 + h3 * 0.70, smoothstep(0.35, 0.65, dn));
+                float tw = 0.80 + 0.20 * sin(TAU * fract(uTime * (0.04 + 0.07 * h4) + h3 * 9.0));
+                float gain = on * tw * (0.50 + 1.25 * h5 * h5) * pow(r0 * md.x / r, 1.3);
+                float cy = c.y * cell.y;
+                gain *= mix(0.18, 1.0, smoothstep(0.47, 0.65, cy)) * mix(1.0, 0.60, smoothstep(0.82, 0.96, cy));     // 글이 놓이는 위쪽과 길잡이가 놓이는 맨 아래는 어둡게
+                acc += tint(hc, h4, kind, ca, cb, cc, cd) * (a * gain);
+            }
+        }
+    }
+    return acc;
+}
+
+// 초점이 나간 건물 한 겹. 돌려주는 값은 가려진 정도 (0..1)
+float blocks(vec2 q, float flow, float wid, vec2 hh, float seed, float blur) {
+    float bx = q.x / wid + mod(flow / wid, 64.0) + 0.5;
+    float bi = floor(bx);
+    float bf = bx - bi;
+    float e = blur / wid;
+    float ha = h21(vec2(mod(bi - 1.0, 64.0), seed));
+    float hb = h21(vec2(mod(bi, 64.0), seed));
+    float ma = smoothstep(-blur, blur, q.y - (HZ - hh.x - (hh.y - hh.x) * ha * ha));
+    float mb = smoothstep(-blur, blur, q.y - (HZ - hh.x - (hh.y - hh.x) * hb * hb));
+    return mix(ma, mb, smoothstep(0.5 - e, 0.5 + e, bf));
+}
+
+// 유리 너머의 거리: 비에 젖은 하늘, 흐릿한 건물, 번진 불빛.
+// md 는 빛망울을 그리는 법, inDrop 은 물방울 속인지, hazeK 는 김에 빛이 번지는 정도
+vec3 scene(vec2 q, vec4 md, float inDrop, float hazeK) {
+    float t = uTime;
+    float sd = fract(uSeed * 0.1371) * 19.0;
+    float L = 1.45 * day4f(0.84, 0.62, 0.90, 1.0) * (1.0 + 0.14 * uLevel) * (1.0 - 0.12 * uSoft);      // 불빛의 세기 (말할 때 살짝 밝아진다)
+    float many = 0.88 * day4f(0.86, 0.62, 1.0, 1.0);                                             // 낮에는 켜진 불빛이 드물다
+    // 불빛의 빛깔: 따뜻한 빛 · 분홍 · 푸른빛 · 흰빛 (새벽 · 낮 · 노을 · 밤)
+    vec3 ca = day4(hx(255.0, 170.0, 86.0), hx(255.0, 192.0, 106.0), hx(255.0, 146.0, 76.0), hx(255.0, 158.0, 58.0));
+    vec3 cb = day4(hx(255.0, 122.0, 146.0), hx(255.0, 108.0, 104.0), hx(255.0, 84.0, 146.0), hx(255.0, 56.0, 142.0));
+    vec3 cc = day4(hx(110.0, 184.0, 255.0), hx(128.0, 210.0, 226.0), hx(96.0, 152.0, 255.0), hx(50.0, 144.0, 255.0));
+    vec3 cd = day4(hx(255.0, 230.0, 200.0), hx(255.0, 238.0, 210.0), hx(255.0, 222.0, 194.0), hx(255.0, 224.0, 190.0));
+    // ---- 하늘
+    vec3 top = day4(hx(22.0, 40.0, 84.0), hx(54.0, 76.0, 106.0), hx(24.0, 34.0, 86.0), hx(6.0, 8.0, 24.0));
+    vec3 mid = day4(hx(44.0, 74.0, 128.0), hx(88.0, 114.0, 142.0), hx(46.0, 58.0, 128.0), hx(15.0, 16.0, 50.0));
+    vec3 low = day4(hx(146.0, 146.0, 190.0), hx(166.0, 186.0, 202.0), hx(126.0, 100.0, 160.0), hx(38.0, 25.0, 76.0));
+    vec3 gnd = day4(hx(28.0, 42.0, 78.0), hx(60.0, 80.0, 104.0), hx(26.0, 28.0, 70.0), hx(12.0, 11.0, 34.0));
+    vec3 bFar = day4(hx(54.0, 80.0, 130.0), hx(84.0, 108.0, 136.0), hx(44.0, 48.0, 104.0), hx(14.0, 13.0, 40.0));
+    vec3 bNear = day4(hx(34.0, 54.0, 98.0), hx(68.0, 92.0, 120.0), hx(26.0, 30.0, 74.0), hx(9.0, 9.0, 28.0));
+    float dk = day4f(0.4, 1.0, 0.25, 0.0) * inDrop;          // 물방울 속에서는 낮 하늘이 더 환하게 맺힌다
+    float y = q.y;
+    float k = sat(y / HZ);
+    vec3 col = mix(top, mid, smoothstep(0.0, 0.70, k));
+    col = mix(col, low, smoothstep(0.45, 1.0, k)) * (1.0 + 0.30 * dk);
+    // 해가 뜨고 지는 쪽 하늘에 남은 빛 (새벽엔 왼쪽이 옅은 살구빛, 노을엔 오른쪽이 장밋빛)
+    float asp = uSize.x / uSize.y;
+    float gx = q.x / asp - day4f(0.22, 0.50, 0.80, 0.80);
+    vec3 glowC = day4(hx(255.0, 176.0, 156.0), hx(255.0, 255.0, 255.0), hx(255.0, 112.0, 132.0), hx(255.0, 112.0, 132.0));
+    col += glowC * day4f(0.20, 0.0, 0.30, 0.0) * exp(-sq(gx / 0.40)) * exp(-sq((y - HZ + 0.07) / 0.17));
+    // ---- 초점이 나간 먼 건물들, 그 앞의 나무와 지붕의 덩어리, 젖은 길
+    col = mix(col, bFar, blocks(q, uFlow * 0.12, 0.105, vec2(0.06, 0.27), 71.0 + sd, 0.045) * day4f(0.55, 0.50, 0.62, 0.66));
+    float fx2 = q.x + mod(uFlow * 0.20, 12.566);
+    float ridge = 0.085 + 0.050 * sin(fx2 * 3.0 + sd) + 0.034 * sin(fx2 * 7.5 + sd * 1.7 + 1.3 * sin(fx2 * 3.0)) + 0.016 * sin(fx2 * 17.0 + sd * 2.3);
+    col = mix(col, bNear * (1.0 - 0.25 * dk), smoothstep(-0.05, 0.05, y - (HZ - ridge)) * day4f(0.66, 0.60, 0.78, 0.80));
+    float dy = y - HZ - 0.02;
+    col = mix(col, mix(gnd, low, 0.30 * exp(-max(dy, 0.0) * 9.0)) * (1.0 - 0.25 * dk), smoothstep(-0.05, 0.07, dy));
+    // 땅 가까이 낀 비안개 (고르지 않게 깔린다)
+    float mist = exp(-sq((dy + 0.035 * sin(fx2 * 1.5 + 1.0 + sd)) / 0.20)) * day4f(0.56, 0.44, 0.20, 0.10) * mix(0.82, 1.0, hazeK);
+    col = mix(col, low, mist);
+    // ---- 불빛이 비와 김에 번진 빛무리 (동네마다 빛깔이 다르다. 가운데 겹의 불빛과 같은 무늬로, 13.35 마다 되풀이)
+    float fx = q.x + mod(uFlow * 0.30, 13.35);
+    float n1 = 0.5 + 0.5 * sin(fx * 2.3533 + 1.7 * sin(fx * 0.9413 + 4.0));
+    float n2 = 0.5 + 0.5 * sin(fx * 1.4119 + 2.0 + 1.3 * sin(fx * 2.3533 + 1.0));
+    vec3 dist = mix(ca, mix(cb, cc, smoothstep(0.55, 0.9, n2)), smoothstep(0.35, 0.65, n1) * 0.8);
+    float crowd = 0.62 + 0.38 * sin(fx * 5.1771 + 2.0 * sin(fx * 1.8826));
+    float hz = (exp(-sq(dy / 0.15)) * 0.13 * crowd + exp(-sq(dy / 0.36)) * 0.04) * mix(0.90, 1.0, hazeK);
+    // 젖은 길에 길게 번진 불빛
+    float ry = dy - 0.05;
+    float wetK = smoothstep(0.0, 0.10, ry) * exp(-max(ry, 0.0) * 4.5) * sq(sq(0.5 + 0.5 * sin(fx * 7.0597 + 1.5 * sin(fx * 3.2945 + sd))));
+    col += mix(dist, cb, 0.25) * (hz + wetK * 0.30) * L;
+    // ---- 빛망울: 먼 것부터 가까운 것까지 (가까운 겹일수록 달릴 때 빨리 흘러간다)
+    float fl = uFlow;
+    float bst = mix(mix(1.10, 0.88, hazeK), 1.15, inDrop);          // 김이 걷힌 물길 너머의 불빛은 더 또렷하고 밝다
+    col += bokeh(q, fl * 0.10, vec2(0.036, 0.036), vec2(0.0060, 0.0115), vec3(HZ - 0.11, 0.065, 0.80 * many), 7.0 + sd, 0.0, md, ca, cb, cc, cd) * (0.60 * L * bst * (1.0 - 0.4 * uSoft));
+    col += bokeh(q, fl * 0.16, vec2(0.075, 0.075), vec2(0.015, 0.029), vec3(HZ - 0.07, 0.10, 0.85 * many), 3.0 + sd, 0.0, md, ca, cb, cc, cd) * (0.90 * L * bst * (1.0 - 0.3 * uSoft));
+    col += bokeh(q, fl * 0.30, vec2(0.150, 0.150), vec2(0.026, 0.044), vec3(HZ - 0.01, 0.10, 1.00 * many), 11.0 + sd, 0.0, md, ca, cb, cc, cd) * (1.25 * L * bst);
+    col += bokeh(q, fl * 0.36, vec2(0.157, 0.157), vec2(0.032, 0.052), vec3(HZ + 0.02, 0.12, 0.95 * many), 29.0 + sd, 0.0, md, ca, cb, cc, cd) * (1.15 * L * bst);
+    col += bokeh(q, fl * 0.42, vec2(0.163, 0.163), vec2(0.036, 0.058), vec3(HZ + 0.05, 0.15, 0.90 * many), 23.0 + sd, 0.0, md, ca, cb, cc, cd) * (1.05 * L * bst);
+    // 가로등과 신호등의 줄, 오가는 차의 전조등과 미등
+    col += bokeh(q, fl * 0.26, vec2(0.200, 0.150), vec2(0.030, 0.042), vec3(HZ - 0.18, 0.045, 0.90), 17.0 + sd, 1.0, md, ca, cb, cc, cd) * (1.05 * L * bst);
+    col += bokeh(q, fl * 0.50 + t * 0.022, vec2(0.300, 0.140), vec2(0.028, 0.040), vec3(HZ + 0.05, 0.03, 0.85), 31.0 + sd, 2.0, md, ca, cb, cc, cd) * (1.20 * L * bst);
+    col += bokeh(q, fl * 0.55 - t * 0.017, vec2(0.340, 0.140), vec2(0.026, 0.038), vec3(HZ + 0.10, 0.03, 0.80), 43.0 + sd, 3.0, md, ca, cb, cc, cd) * (1.10 * L * bst);
+    if (inDrop < 0.5) {
+        // 가까이 지나가는 크고 옅은 빛망울 (물방울 속에서는 그리지 않는다)
+        col += bokeh(q, fl * 0.75, vec2(0.300, 0.300), vec2(0.062, 0.092), vec3(HZ + 0.10, 0.17, 0.66 * many), 37.0 + sd, 0.0, md, ca, cb, cc, cd) * (0.44 * L * bst);
+        col += bokeh(q, fl * 1.10, vec2(0.500, 0.500), vec2(0.105, 0.150), vec3(HZ + 0.20, 0.25, 0.52 * many), 53.0 + sd, 0.0, md, ca, cb, cc, cd) * (0.24 * L * bst);
+    }
+    return col;
+}
+
+// 유리에 맺힌 물방울 한 겹. 돌려주는 값: xy 중심(뒤튼 좌표), z 반지름, w 무작위 값
+// 칸마다 하나씩, 저마다 다른 때에 톡 맺혔다가 한참 뒤에 마른다. 그 자리에는 다른 물방울이 새로 맺힌다.
+vec4 bead(vec2 pw, float n, float seed, float dens, float asp, float topK) {
+    vec2 g = pw * n;
+    vec2 id = floor(g);
+    float hc = h21(id + seed);
+    float period = mix(50.0, 130.0, hc);
+    float ph = uTime / period + hc * 17.0;
+    float k = floor(ph);
+    float f = ph - k;
+    vec2 ik = id + seed + vec2(mod(k, 37.0) * 0.731, mod(k, 41.0) * 0.377);
+    float hs = h21(ik + 1.7);
+    vec2 j = h22(ik + 4.3);
+    float rc = 0.05 + 0.27 * hs * hs;
+    vec2 c = (id + 0.5 + (j - 0.5) * (0.94 - 2.9 * rc)) / n;          // 처지고 기울어도 제 칸을 벗어나지 않게 자리를 남긴다
+    // 글이 놓이는 위쪽은 드물게, 아래와 좌우 맨 가장자리는 넉넉하게
+    float lowK = smoothstep(0.28, 0.74, c.y);
+    float sideK = smoothstep(0.09, 0.01, min(c.x, asp - c.x) / asp) * smoothstep(0.20, 0.42, c.y);
+    float busy = max(lowK, 0.75 * sideK);
+    float life = smoothstep(0.0, 0.7, f * period) * smoothstep(period, period - 6.0, f * period) * (0.72 + 0.28 * f);
+    float hp = fract(hs * 57.3 + hc * 3.1);
+    float keep = smoothstep(0.0, 0.14, dens * mix(topK, 1.0, busy) - hp);
+    return vec4(c, rc / n * life * keep * mix(0.80, 1.0, busy), hs);
+}
+
+// 물방울 안에서의 자리 (-1..1). o: 이 픽셀에서 중심까지, r: 반지름, h: 무작위 값, kw: 바람에 기운 정도, sag: 아래로 처진 정도
+vec2 dropUV(vec2 o, float r, float h, float kw, float sag) {
+    vec2 v = -o / max(r, 0.00001) * vec2(1.0 + 0.16 * (h - 0.5), 1.0 - 0.16 * (h - 0.5));
+    v.x += kw * v.y;
+    v.y *= v.y > 0.0 ? 1.0 - 0.10 * sag : 1.0 + 0.08 * sag;
+    v.x *= 1.0 + 0.14 * sag * sat(-v.y);
+    return v;
+}
+
+// 흘러내리는 물방울과 그 물길이, 맺혀 있던 물방울을 삼키는 정도.
+// off: 이 픽셀에서 맺힌 물방울의 중심까지, rc: 그 반지름, tr: (물길까지의 가로 거리, 물길 너비, 머리까지의 세로 거리, 아직 덜 마른 정도),
+// hd: (머리까지의 가로 거리, 머리의 반지름), xs·W: 이 픽셀의 차선 자리와 차선 너비.
+// 물방울이 한 차선 안에 온전히 들어 있을 때만 삼킨다 (차선 경계에 걸친 물방울이 반쪽만 사라지지 않게).
+float eaten(vec2 off, float rc, vec4 tr, vec2 hd, float slant, float xs, float W) {
+    float ox = off.x + slant * off.y;
+    float fc = fract(xs + ox / W);
+    float inLane = smoothstep(rc / W, rc / W * 1.4 + 0.02, min(fc, 1.0 - fc));
+    float trail = smoothstep(tr.y * 1.10 + rc, tr.y * 0.55, abs(tr.x + ox)) * smoothstep(-rc, rc, tr.z - off.y) * tr.w;
+    float head = smoothstep(hd.y * 1.3 + rc, hd.y * 0.8, length(vec2(ox + hd.x, off.y - tr.z)));
+    return max(trail, head) * inLane;
+}
+
+// 큰 물방울 곁의 작은 물방울은 이미 큰 것에 합쳐졌다. off: 큰 것의 중심에서 작은 것의 중심까지.
+// cs: 작은 것의 중심(큰 것의 좌표로), n: 큰 것의 칸 수. 작은 것이 큰 것의 칸 안에 온전히 들어 있을 때만 (칸 경계에서 반쪽만 사라지지 않게)
+float merged(vec2 off, float rBig, float rSmall, float px, vec2 cs, float n) {
+    vec2 f = abs(fract(cs * n) - 0.5);
+    float inCell = smoothstep(rSmall * n, rSmall * n * 1.5 + 0.02, 0.5 - max(f.x, f.y));
+    return smoothstep(rBig * 1.30 + rSmall, rBig * 0.90, length(off)) * step(px, rBig) * inCell;
+}
+
+half4 main(float2 xy) {
+    vec2 uv = xy / uSize;
+    float asp = uSize.x / uSize.y;
+    vec2 p = vec2(uv.x * asp, uv.y);
+    float px = 1.0 / uSize.y;
+    float t = uTime;
+    float rainK = mix(0.6, uRain, smoothstep(0.0, 0.35, uRain));      // 비의 세기: 0 이어도 기본 세기로 내린다
+    float quiet = 1.0 - 0.4 * uSoft;
+    float windK = smoothstep(0.5, 1.0, uWind);
+    float slant = 0.04 + 0.62 * windK;                               // 바람이 세면(달릴 때) 비스듬히 흐른다
+    float gs = gust(p.x, t);
+    float sd0 = fract(uSeed * 0.1371) * 19.0;
+    float xw = p.x + slant * (p.y - 0.55);                           // 바람에 기운 가로 자리 (물길을 따라가면 값이 같다)
+
+    // 물방울이 동그랗지만은 않게 좌표를 살짝 뒤튼다
+    vec2 w1 = p * 95.0;
+    vec2 warpA = vec2(sin(w1.y * 1.1 + 1.7 * sin(w1.x * 0.8 + 2.0)), sin(w1.x * 1.2 + 1.9 * sin(w1.y * 0.7 + 5.0))) * 0.0017;
+    vec2 w2 = p * 262.0;
+    vec2 warpB = vec2(sin(w2.y + 2.1 * sin(w2.x * 0.7)), sin(w2.x * 1.2 + 1.3 * sin(w2.y * 0.9 + 1.0))) * 0.0006;
+    vec2 w0 = p * 23.0;
+    vec2 warpH = vec2(sin(w0.y * 1.3 + 1.6 * sin(w0.x * 0.9 + 1.0)), sin(w0.x * 1.1 + 1.8 * sin(w0.y * 0.8 + 3.0))) * 0.0034;
+    vec2 pA = p + warpA;
+    vec2 pB = pA + warpB;
+    vec2 pH = pA + warpH;
+
+    // ---- 맺혀 있는 물방울 네 겹 (큰 것부터). 군데군데 모여 맺히고, 돌풍이 지나가면 잔 물방울이 더 맺힌다
+    float patchy = 0.50 + 1.00 * vn(p * 2.7 + sd0 + 31.0);
+    float dens = (0.30 + 0.85 * rainK) * (0.80 + 0.40 * gs) * patchy;
+    vec4 dH = bead(pH, 7.0, 45.0 + sd0, 0.42 * dens, asp, 0.10);
+    vec4 dA = bead(pA, 13.0, 5.0 + sd0, 0.50 * dens, asp, 0.20);
+    vec4 dB = bead(pA, 27.0, 15.0 + sd0, 0.56 * dens * (1.0 - 0.25 * uSoft), asp, 0.08);
+    vec4 dC = bead(pB, 58.0, 25.0 + sd0, 0.50 * dens * quiet, asp, 0.0);
+    vec2 oH = dH.xy - pH;          // 이 픽셀에서 물방울 중심까지
+    vec2 oA = dA.xy - pA;
+    vec2 oB = dB.xy - pA;
+    vec2 oC = dC.xy - pB;
+    float eH = 0.0;                // 흘러내리는 물방울에 삼켜진 정도
+    float eA = 0.0;
+    float eB = 0.0;
+    float eC = 0.0;
+
+    // ---- 흘러내리는 물방울 두 겹. 차선마다 한 방울씩, 저마다 다른 때에 맺혀 멈칫거리며 내려간다
+    float clearK = 0.0;            // 물길이 김을 걷어낸 정도
+    float lensX = 0.0;             // 갓 지나간 물길의 얇은 물막이 뒤의 빛을 옆으로 살짝 꺾는다
+    vec2 bv = vec2(0.0);           // 흘러내리는 물방울 안에서의 자리 (-1..1)
+    float br = 1.0;                // 그 반지름
+    float bm = 0.0;                // 덮은 정도
+    float bg = 0.5;                // 반짝임을 고르는 무작위 값
+    vec2 tv = vec2(0.0);           // 물길에 남은 작은 방울 안에서의 자리, 반지름, 덮은 정도
+    float tr = 1.0;
+    float tm = 0.0;
+    float tg = 0.5;
+    for (int i = 0; i < 2; i++) {
+        float fl = float(i);
+        float W = mix(0.215, 0.128, fl);
+        float sd = 29.0 + fl * 23.0 + sd0 * 1.37;
+        float xs = xw / W + fl * 0.37 + 3.0;
+        float li = floor(xs);
+        float lx = (xs - li) * W;
+        float h0 = h21(vec2(li, sd));
+        float period = mix(30.0, 54.0, h0);
+        float ph = t / period + h21(vec2(li, sd + 3.3)) * 9.0;
+        float k = floor(ph);
+        float tau = (ph - k) * period;                        // 이번 물방울이 맺히기 시작한 뒤 흐른 시간(초)
+        float km = mod(k, 61.0);
+        vec2 hk = h22(vec2(li + km * 0.618, sd + 1.7 + km * 0.371));
+        float hq = h21(vec2(li - km * 0.411, sd + 6.1 + km));
+        // 이번 물방울: 있고 없음, 크기, 맺히는 자리, 빠르기
+        float keep = smoothstep(0.0, 0.15, rainK + 0.02 + 0.25 * windK - 0.15 * uSoft - hk.x);
+        float y0 = mix(0.27, 0.62, hk.y);                     // 글이 놓이는 자리 아래에서 맺힌다
+        float r0 = mix(0.0105, 0.0215, hq) * mix(1.0, 0.62, fl) * keep;
+        float stepH = mix(0.07, 0.15, fract(hq * 7.7));
+        float x0 = W * (0.5 + (fract(hk.y * 13.3) - 0.5) * 0.50);
+        float gEnd = (-1.0 + sqrt(1.0 + 4.0 * ACC * (1.25 - y0) / stepH)) / (2.0 * ACC);
+        float tGrow = 2.0 + 2.0 * fract(hq * 3.3);
+        float rate = gEnd / (period * mix(0.30, 0.48, fract(hk.x * 9.1)) * (1.25 - y0) * 0.85);
+        float s = max(tau - tGrow, 0.0) * rate;
+        // 지금 물방울의 자리: 멈칫, 주르륵, 멈칫
+        float n0 = floor(s);
+        float f0 = s - n0;
+        vec2 e0 = h22(vec2(n0 + li * 3.7, sd + km * 1.3));
+        float a0 = e0.x * 0.36;
+        float b0 = a0 + 0.36 + 0.28 * e0.y;
+        float m0 = sat((f0 - a0) / (b0 - a0));
+        float g0 = n0 + smoothstep(0.0, 1.0, pow(m0, 0.72));
+        float yd = y0 + stepH * g0 * (1.0 + ACC * g0);
+        float vel = 4.0 * m0 * (1.0 - m0);
+        // 이 높이를 물방울이 지나간 때 (위의 식을 거꾸로 푼다)
+        float u = (p.y - y0) / stepH;
+        float gp = (-1.0 + sqrt(1.0 + 4.0 * ACC * max(u, 0.0))) / (2.0 * ACC);
+        float n1 = floor(gp);
+        float f1 = gp - n1;
+        vec2 e1 = h22(vec2(n1 + li * 3.7, sd + km * 1.3));
+        float a1 = e1.x * 0.36;
+        float b1 = a1 + 0.36 + 0.28 * e1.y;
+        float sPass = n1 + a1 + (b1 - a1) * pow(invSmooth(f1), 1.389);
+        float age = (s - sPass) / rate;                       // 지나간 뒤 흐른 시간(초)
+        float begun = smoothstep(-0.3, 0.2, u);
+        float passed = smoothstep(0.0, 0.12, age) * begun;
+        float endK = smoothstep(period, period - 5.0, tau);   // 다음 물방울이 오기 전에 물길이 다 마른다
+        float phw = hk.x * 40.0;
+        float xd = x0 + W * wig(yd, phw);
+        float dx = lx - (x0 + W * wig(p.y, phw));
+        float grow = sqrt(smoothstep(0.0, tGrow, tau));
+        float rNow = r0 * grow * mix(0.55, 1.0, smoothstep(0.25, 0.75, yd));       // 내려오며 작은 물방울을 삼켜 커진다
+        float rT = r0 * mix(0.55, 1.0, smoothstep(0.25, 0.75, p.y));
+        // 물길: 김이 걷히고, 가장자리부터 군데군데 끊어지며 다시 서린다
+        float big = smoothstep(0.0025, 0.0050, r0);           // 아주 작은 것은 물길을 남기지 않는다
+        float dry = exp(-max(age, 0.0) / 13.0) * endK;
+        float brk = vn(vec2(p.y * 34.0 + phw, dx / max(rT, 0.0001) * 1.1 + li * 1.7 + sd));
+        float wc = rT * (1.25 + 0.50 * sin(p.y * 13.0 + phw + 2.0 * sin(p.y * 5.3 + phw * 0.7)));
+        float wNow = min(wc * (0.60 + 0.40 * dry), 0.80 * min(lx - dx, W - lx + dx));       // 물길이 차선을 넘지 않게
+        float dxe = dx + rT * 0.55 * (brk - 0.5);             // 물길의 가장자리가 들쭉날쭉하다
+        float whole = smoothstep(0.0, 0.30, dry * 1.5 - brk * 0.85 + 0.12);
+        float cl = smoothstep(wNow, wNow * 0.50, abs(dxe)) * passed * big * whole * sqrt(dry);
+        clearK = max(clearK, cl);
+        float un = clamp(dx / max(wNow, 0.00001), -1.0, 1.0);
+        lensX += sin(3.14159 * un) * (1.0 - un * un) * passed * big * exp(-max(age, 0.0) / 3.0) * endK * rT * 0.30;
+        vec4 trk = vec4(dx, wc, yd - p.y, passed * big * (1.0 - smoothstep(5.0, 20.0, age)) * endK);
+        // 물길에 남은 작은 방울들: 세로로 길쭉하게 맺혔다가 천천히 마른다
+        float hbz = 0.019 + 0.012 * hq;
+        float bi = floor(p.y / hbz);
+        float bh = h21(vec2(bi + li * 7.1, sd + km * 0.77));
+        float yb = (bi + 0.22 + 0.56 * bh) * hbz;
+        float xb = x0 + W * wig(yb, phw) + (fract(bh * 17.3) - 0.5) * rT * 0.7;
+        float el = 1.0 + 1.2 * fract(bh * 7.9);
+        float rb = rT * (0.22 + 0.38 * sq(fract(bh * 31.7))) * passed * big * (0.45 + 0.55 * dry) * smoothstep(0.0, 0.2, dry) * step(0.36, fract(bh * 5.3));
+        rb = min(rb, 0.22 * hbz / el) * smoothstep(0.34, 0.52, yb);              // 글이 놓이는 위쪽에는 남기지 않는다
+        vec2 db = vec2(lx - xb - slant * (p.y - yb), (p.y - yb) / el);
+        float mb = sat((rb - length(db)) / px + 0.5) * step(px * 0.7, rb);
+        if (mb > tm) { tm = mb; tv = db / max(rb, 0.00001); tr = rb; tg = bh; }
+        // 흘러내리는 물방울: 머리는 둥글고, 흐를 때는 살짝 길쭉해지며 뒤로 가는 물줄기를 끈다 (늘어나도 물의 양은 그대로)
+        vec2 dd = vec2(lx - xd, p.y - yd);
+        float st = 1.10 + 0.50 * vel;
+        float rH = rNow / sqrt(0.5 + 0.5 * st);
+        float A = dd.y / max(rH, 0.00001);
+        float C = mix(dd.x, dx, sat(-A * 0.6)) / max(rH, 0.00001);
+        float A2 = A > 0.0 ? A * 1.05 : A / st;
+        vec2 vs = vec2(C * (1.0 + 0.30 * min(A2 * A2, 4.0) * step(A, 0.0)), A2);
+        float fh = length(vs);
+        float sH = (1.0 - fh) * rH;                           // 머리의 가장자리까지의 거리 (안쪽이 +)
+        float sb = -dd.y;                                     // 머리에서 위로 잰 거리
+        float wt = rH * 0.78 * (0.25 + 0.75 * vel) * exp(-max(sb, 0.0) / max(rH * (0.9 + 2.6 * vel), 0.00001)) * smoothstep(-0.2 * rH, 0.5 * rH, sb) * begun;
+        float sT = wt - abs(dx);                              // 물줄기의 가장자리까지의 거리
+        float kS = 0.30 * rH;
+        float hS = max(kS - abs(sH - sT), 0.0) / max(kS, 0.00001);
+        float sU = max(sH, sT) + hS * hS * kS * 0.25;         // 머리와 물줄기가 매끄럽게 이어진다
+        float tw = sat(0.5 + (sT - sH) / max(2.0 * kS, 0.00001));       // 0 머리 · 1 물줄기
+        float rr = mix(rH, max(wt, px), tw);
+        vec2 vv = mix(vs * min(1.0, 2.0 / max(fh, 0.0001)), vec2(dx / max(wt, 0.00001), 0.0), tw);
+        vv = vv / max(length(vv), 0.0001) * sat(1.0 - sU / max(rr, 0.00001)) * mix(1.0, sat(wt / px * 0.35 - 0.35), tw);
+        float ms = sat(sU / px + 0.5) * step(px * 0.7, rH) * mix(1.0, sat(wt / px * 0.8 - 0.8), tw);      // 아주 가는 물줄기는 스르르 사라진다
+        if (ms > 0.0) { bm = ms; bv = vv; br = rr; bg = hq; }
+        // 물길과 머리 둘레의 맺혀 있던 물방울을 삼킨다 (물길이 마르면 그 자리에 다시 맺힌다)
+        vec2 hd = vec2(dd.x, rH);
+        eH = max(eH, eaten(oH, dH.z, trk, hd, slant, xs, W));
+        eA = max(eA, eaten(oA, dA.z, trk, hd, slant, xs, W));
+        eB = max(eB, eaten(oB, dB.z, trk, hd, slant, xs, W));
+        eC = max(eC, eaten(oC, dC.z, trk, hd, slant, xs, W));
+    }
+
+    // ---- 이 픽셀을 덮은 물방울 고르기: 작은 것 위에 큰 것, 그 위에 흘러내리는 것. 큰 것 곁의 작은 것은 이미 합쳐졌다
+    float kw = 0.5 * (slant - 0.04);
+    float rHd = dH.z * (1.0 - eH);
+    float rA = dA.z * (1.0 - max(eA, merged(oA - oH, rHd, dA.z, px, pH + oA, 7.0)));
+    float rB = dB.z * (1.0 - max(eB, max(merged(oB - oH, rHd, dB.z, px, pH + oB, 7.0), merged(oB - oA, rA, dB.z, px, pA + oB, 13.0))));
+    float rC = dC.z * (1.0 - max(eC, max(merged(oC - oH, rHd, dC.z, px, pH + oC, 7.0), max(merged(oC - oA, rA, dC.z, px, pA + oC, 13.0), merged(oC - oB, rB, dC.z, px, pA + oC, 27.0)))));
+    vec2 cv = vec2(0.0);           // 물방울 안에서의 자리 (-1..1)
+    float cr = 1.0;                // 반지름
+    float cm = 0.0;                // 덮은 정도
+    float cg = 0.5;                // 반짝임을 고르는 무작위 값
+    float shade = 0.0;             // 물방울이 유리에 드리운 옅은 그늘
+    vec2 vC = dropUV(oC, rC, dC.w, kw, 0.0);
+    float mC = sat((1.0 - length(vC)) * rC / px + 0.5) * sat(rC / px * 0.7 - 0.7);
+    if (mC > 0.0) { cm = mC; cv = vC; cr = rC; cg = dC.w; }
+    vec2 vB = dropUV(oB, rB, dB.w, kw, 0.5);
+    float mB = sat((1.0 - length(vB)) * rB / px + 0.5) * sat(rB / px * 0.7 - 0.7);
+    if (mB > 0.0) { cm = mB; cv = vB; cr = rB; cg = dB.w; }
+    vec2 fB = abs(fract(pA * 27.0) - 0.5);
+    shade = max(shade, exp(-max(length(vB - vec2(0.0, 0.08)) - 1.0, 0.0) * 7.0) * sat(rB / px - 0.5) * smoothstep(0.5, 0.40, max(fB.x, fB.y)));
+    vec2 vA = dropUV(oA, rA, dA.w, kw, 1.0);
+    float mA = sat((1.0 - length(vA)) * rA / px + 0.5) * sat(rA / px - 0.5);
+    if (mA > 0.0) { cm = mA; cv = vA; cr = rA; cg = dA.w; }
+    vec2 fA = abs(fract(pA * 13.0) - 0.5);
+    shade = max(shade, exp(-max(length(vA - vec2(0.0, 0.08)) - 1.0, 0.0) * 7.0) * sat(rA / px - 0.5) * smoothstep(0.5, 0.40, max(fA.x, fA.y)));
+    vec2 vH = dropUV(oH, rHd, dH.w, kw, 1.0);
+    float mH = sat((1.0 - length(vH)) * rHd / px + 0.5) * sat(rHd / px - 0.5);
+    if (mH > 0.0) { cm = mH; cv = vH; cr = rHd; cg = dH.w; }
+    vec2 fH = abs(fract(pH * 7.0) - 0.5);
+    shade = max(shade, exp(-max(length(vH - vec2(0.0, 0.08)) - 1.0, 0.0) * 7.0) * sat(rHd / px - 0.5) * smoothstep(0.5, 0.40, max(fH.x, fH.y)));
+    if (tm > 0.0) { cm = tm; cv = tv; cr = tr; cg = tg; }
+    if (bm > 0.0) { cm = bm; cv = bv; cr = br; cg = bg; }
+
+    // ---- 김 서린 유리: 고르게 서리지 않고, 오래전에 흘러내린 자국이 드문드문 세로로 남아 있다
+    float fogN = fbm3(p * 1.7 + vec2(t * 0.004, -t * 0.006) + sd0);
+    float streak = smoothstep(0.56, 0.92, vn(vec2(xw * 17.0, p.y * 0.8 + 7.0))) * (0.35 + 0.65 * vn(vec2(xw * 6.0 + 3.0, p.y * 2.1)));
+    float fog = sat(0.52 + 0.36 * fogN - 0.16 * streak + 0.14 * (1.0 - uv.y) + 0.2 * uSoft + 0.10 * (gs - 0.45) * (0.5 + uWind));     // 돌풍이 지나가면 빗발에 유리가 잠깐 더 흐려진다
+    float edgeK = clearK * (1.0 - clearK) * 4.0;
+    fog *= 1.0 - 0.80 * clearK;                              // 물길에도 물기는 옅게 남는다
+
+    // ---- 유리 너머: 젖은 유리에 빛망울의 가장자리가 살짝 일렁이고, 김이 짙을수록 무르게 번진다
+    vec2 wet = (warpH * 0.55 + warpA * 0.40) * (0.55 + 0.45 * fog) + vec2(lensX, 0.0);
+    vec3 col = scene(p + wet, vec4(1.0, 0.045 + 0.19 * fog, 1.0 - 0.60 * fog, 0.0), 0.0, fog);
+    vec3 veil = day4(hx(104.0, 126.0, 170.0), hx(150.0, 166.0, 180.0), hx(84.0, 80.0, 130.0), hx(44.0, 42.0, 92.0));
+    col = mix(col, veil, fog * day4f(0.13, 0.15, 0.10, 0.09));
+    col *= 1.0 + fog * 0.10 * (fogN - 0.5);
+    col += veil * edgeK * 0.03;
+    col *= 1.0 - 0.13 * shade * (1.0 - cm);
+
+    // ---- 물방울 속: 뒤의 거리가 거꾸로, 넓게 비친다 (가장자리로 갈수록 더 먼 곳이 눌려 담긴다)
+    if (cm > 0.001) {
+        float rho2 = min(dot(cv, cv), 1.0);
+        float rho = sqrt(rho2);
+        float lens = 0.94 / sqrt(1.0 - 0.8836 * rho2);
+        vec2 cc = p - cv * cr;
+        float bigK = smoothstep(0.004, 0.018, cr);           // 큰 물방울일수록 넓은 거리를 담고, 잔 물방울은 바로 뒤의 빛을 담는다
+        float F = 0.045 + 2.0 * min(cr, 0.03) + 0.25 * abs(cc.y - HZ) * bigK;
+        vec2 qr = vec2(cc.x, mix(cc.y, HZ, 0.40 * bigK)) - cv * lens * F;
+        float fp = px / cr * F * lens;
+        vec3 dc = scene(qr, vec4(mix(0.90, 0.55, bigK), 0.30, 0.10, fp * 0.8), 1.0, 0.0);
+        dc += col * day4f(0.26, 0.14, 0.38, 0.42);            // 물방울은 바로 뒤에서 번져 오는 빛도 머금는다
+        // 물방울의 윤기: 위쪽 가장자리의 어두운 테, 왼쪽 위의 반짝임, 오른쪽 아래에 고이는 빛. 방울마다 조금씩 다르다
+        vec3 amb = day4(hx(210.0, 226.0, 255.0), hx(236.0, 244.0, 255.0), hx(190.0, 190.0, 255.0), hx(130.0, 140.0, 220.0));
+        vec3 gcol = mix(amb, hx(255.0, 214.0, 160.0), step(0.55, fract(cg * 9.7)) * day4f(0.5, 0.2, 0.7, 0.9));
+        float gloss = sat(cr / px * 0.25 - 0.4) * (1.0 - 0.35 * uSoft) * (1.0 - 0.40 * day4f(0.4, 1.0, 0.15, 0.0));
+        vec2 nv = cv / max(rho, 0.001);
+        float lit = dot(nv, vec2(-0.55, -0.83));
+        dc *= 1.0 - (0.06 + 0.34 * sat(lit + 0.3)) * sq(smoothstep(0.84, 1.0, rho)) * sat(cr / px * 0.5 - 0.5);
+        float arc = smoothstep(0.55, 0.80, rho) * smoothstep(0.98, 0.86, rho) * sq(sat(lit));
+        float cau = smoothstep(0.30, 0.85, rho) * smoothstep(1.0, 0.86, rho) * sq(sat(-lit));
+        vec2 sp = cv - vec2(-0.40 + 0.18 * (cg - 0.5), -0.46 + 0.14 * (fract(cg * 7.3) - 0.5));
+        float glint = exp(-dot(sp, sp) / (0.004 + 0.006 * fract(cg * 3.7))) * (0.35 + 0.65 * fract(cg * 5.1));
+        dc += (gcol * (arc * 0.40 + glint * 0.85) + (dc * 0.9 + amb * 0.08) * cau) * gloss;
+        col = mix(col, dc, cm);
+    }
+    // 밝은 곳을 부드럽게 눌러 담는다 (빛깔은 지키면서, 아주 밝은 빛망울만 희게 탄다)
+    float mx = max(col.r, max(col.g, col.b));
+    vec3 keepHue = col * ((1.0 - exp(-1.4 * mx)) / max(mx, 0.0001));
+    col = mix(keepHue, 1.0 - exp(-col * 1.4), 0.22 + 0.45 * smoothstep(0.7, 2.2, mx));
+    return finish(col, xy);
+}

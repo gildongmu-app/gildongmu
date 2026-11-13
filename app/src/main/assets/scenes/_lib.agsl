@@ -1,0 +1,113 @@
+// 길동무 — 살아 있는 바탕의 공용 조각 (모든 장면 앞에 이어 붙는다)
+//
+// 좌표: xy 는 픽셀, 왼쪽 위가 (0,0). 장면은 보통 p = (uv.x * 가로세로비, uv.y) 로 그린다.
+// 약속: 글이 놓이는 위쪽 절반은 잔잔하게, 볼거리는 아래쪽 절반에. 아래 12% 가운데에는 길잡이가 놓인다.
+
+uniform float2 uSize;   // 그릴 크기(px)
+uniform float uTime;    // 초
+uniform float uFlow;    // 달리는 동안 흘러간 거리 (장면이 옆으로 흘러간다)
+uniform float uDay;     // 0 새벽 · 1 낮 · 2 노을 · 3 밤 (사이 값은 그 사이의 빛, 4 는 다시 새벽)
+uniform float uWind;    // 바람 세기 0..1
+uniform float uRain;    // 비 0..1
+uniform float uLevel;   // 목소리 크기 0..1 (말할 때 바탕이 함께 숨 쉰다)
+uniform float uSoft;    // 0..1 글이 많은 화면에서는 잔잔하게
+uniform float uSeed;    // 날마다 조금씩 다르게
+uniform float uGrade;   // 결: 0 맑게 · 1 필름 · 2 먹
+
+float sat(float x) { return clamp(x, 0.0, 1.0); }
+float sq(float x) { return x * x; }
+vec3 hx(float r, float g, float b) { return vec3(r, g, b) / 255.0; }
+
+float h11(float n) { return fract(sin(n * 127.1 + 311.7) * 43758.5453); }
+float h21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+vec2 h22(vec2 p) { float n = h21(p); return vec2(n, h21(p + n * 31.7 + 17.17)); }
+
+float vn(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = h21(i);
+    float b = h21(i + vec2(1.0, 0.0));
+    float c = h21(i + vec2(0.0, 1.0));
+    float d = h21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) { v += a * vn(p); p = p * 2.03 + vec2(13.7, 7.1); a *= 0.5; }
+    return v;
+}
+float fbm3(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) { v += a * vn(p); p = p * 2.03 + vec2(13.7, 7.1); a *= 0.5; }
+    return v / 0.875;
+}
+mat2 rot(float a) { float c = cos(a); float s = sin(a); return mat2(c, -s, s, c); }
+
+// 하루의 빛: 새벽·낮·노을·밤의 값을 uDay 에 따라 부드럽게 잇는다
+float dayK() { float t = mod(uDay, 4.0); float f = fract(t); return floor(t) + f * f * (3.0 - 2.0 * f); }
+vec3 day4(vec3 a, vec3 b, vec3 c, vec3 d) {
+    float t = dayK();
+    if (t < 1.0) return mix(a, b, t);
+    if (t < 2.0) return mix(b, c, t - 1.0);
+    if (t < 3.0) return mix(c, d, t - 2.0);
+    return mix(d, a, t - 3.0);
+}
+float day4f(float a, float b, float c, float d) {
+    float t = dayK();
+    if (t < 1.0) return mix(a, b, t);
+    if (t < 2.0) return mix(b, c, t - 1.0);
+    if (t < 3.0) return mix(c, d, t - 2.0);
+    return mix(d, a, t - 3.0);
+}
+
+// 바람: 화면을 가로질러 지나가는 돌풍 (0..1). x 는 장면의 가로 좌표.
+float gust(float x, float t) {
+    float g = vn(vec2(x * 0.9 - t * 0.35, t * 0.07)) * 0.65 + vn(vec2(x * 2.3 - t * 0.8, 3.7)) * 0.35;
+    return sat(g * (0.55 + 0.9 * uWind));
+}
+
+// 별: 반짝이는 점들 (uv 는 0..1, k 는 얼마나 촘촘한지)
+float stars(vec2 p, float k) {
+    vec2 g = p * k;
+    vec2 id = floor(g);
+    vec2 f = fract(g) - 0.5;
+    float r = h21(id + 3.1);
+    if (r < 0.80) return 0.0;
+    vec2 o = (h22(id + 9.7) - 0.5) * 0.7;
+    float d = length(f - o);
+    float tw = 0.55 + 0.45 * sin(uTime * (0.6 + 2.2 * h21(id + 1.3)) + r * 40.0);
+    float s = (r - 0.80) * 5.0;
+    return smoothstep(0.09 * (0.4 + s), 0.0, d) * tw * (0.35 + 0.65 * s);
+}
+
+// 둥근 빛 (가운데가 밝고 가장자리로 스르르)
+float glow(float d, float r) { return exp(-d * d / (r * r)); }
+
+// 마무리: 결(맑게·필름·먹), 입자, 가장자리
+half4 finish(vec3 col, vec2 xy) {
+    vec2 uv = xy / uSize;
+    float l = dot(col, vec3(0.299, 0.587, 0.114));
+    if (uGrade > 1.5) {
+        // 먹: 빛깔을 걷어 내고 먹빛 종이 위의 농담으로
+        float k = smoothstep(0.02, 0.92, l);
+        vec3 ink = mix(vec3(0.085, 0.078, 0.072), vec3(0.80, 0.77, 0.71), k * k * (1.6 - 0.6 * k));
+        col = mix(ink, col, 0.10);
+    } else if (uGrade > 0.5) {
+        // 필름: 검정이 살짝 뜨고, 밝은 곳이 따뜻해진다
+        col = mix(col, vec3(l), 0.10);
+        col = col * vec3(1.03, 1.0, 0.95) + vec3(0.028, 0.022, 0.034);
+    }
+    float g = uGrade > 0.5 ? 0.060 : 0.020;
+    float n = h21(xy + fract(uTime * 0.37) * 91.0) - 0.5;
+    col += vec3(n * g);
+    vec2 v = uv - 0.5;
+    col *= 1.0 - 0.26 * dot(v, v);
+    return half4(clamp(col, vec3(0.0), vec3(1.0)), 1.0);
+}
